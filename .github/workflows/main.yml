@@ -3,8 +3,8 @@ name: Monitoramento 24h
 # Quando o workflow será executado
 on:
   schedule:
-    - cron: '0 */12 * * *'  # executa a cada 12 horas
-  workflow_dispatch:        # permite rodar manualmente
+    - cron: '0 */12 * * *'  # Executa a cada 12 horas
+  workflow_dispatch:        # Permite rodar manualmente pelo botão "Run workflow"
 
 jobs:
   build:
@@ -30,8 +30,7 @@ jobs:
 
       # Roda o script monitor.py com os secrets do Telegram
       - name: Rodar monitor.py
-  env:
-    TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-    TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-  run: python ./monitor.py
-
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python monitor.py
