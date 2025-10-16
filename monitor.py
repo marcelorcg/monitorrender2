@@ -1,60 +1,63 @@
 import requests
 import time
-from datetime import datetime
+import os
+import datetime
+from telegram import Bot
 
-# Configurações do Telegram via GitHub Secrets
-TELEGRAM_TOKEN = "<seu_telegram_token>"
-TELEGRAM_CHAT_ID = "<seu_chat_id>"
+# 🔐 Carregar variáveis de ambiente (definidas nos Secrets do GitHub)
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Sites a monitorar
-sites = [
-    {
-        "nome": "Câmara SJC",
-        "url": "https://www.camarasjc.sp.gov.br/a-camara/concurso-publico.php"
-    },
-    {
-        "nome": "Prefeitura Caçapava",
-        "url": "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos/concurso-publico-012024"
-    }
-]
+# 🚀 Inicializar o bot
+bot = Bot(token=TELEGRAM_TOKEN)
 
-# Cabeçalhos para evitar bloqueio 403
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+# 🧭 Sites monitorados
+SITES = {
+    "Prefeitura de Caçapava": "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos/concurso-publico-012024",
+    "Câmara de São José dos Campos": "https://www.camarasjc.sp.gov.br/a-camara/concurso-publico.php",
 }
 
-# Função para enviar mensagem no Telegram
-def send_telegram(message: str):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
+# 🧠 Configurações de headers (simula navegador)
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                  "AppleWebKit/537.36 (KHTML, like Gecko) "
+                  "Chrome/115.0.0.0 Safari/537.36"
+}
+
+def enviar_mensagem(mensagem):
+    """Envia mensagem ao Telegram."""
     try:
-        response = requests.post(url, data=payload)
-        if response.status_code == 200:
-            print(f"📩 Telegram status: {response.status_code}")
-        else:
-            print(f"⚠️ Falha Telegram: {response.status_code}")
+        bot.send_message(chat_id=CHAT_ID, text=mensagem)
     except Exception as e:
-        print(f"❌ Erro ao enviar Telegram: {e}")
+        print(f"Erro ao enviar mensagem ao Telegram: {e}")
 
-# Mensagem inicial
-send_telegram(f"🚀 Monitoramento 24h iniciado no GitHub Actions em {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+def verificar_site(nome, url):
+    """Verifica status do site e retorna resultado."""
+    try:
+        # Desabilita SSL verification apenas se necessário
+        resposta = requests.get(url, headers=HEADERS, timeout=20, verify=False)
+        resposta.raise_for_status()
+        return f"✅ {nome}: Site acessado com sucesso! (Status {resposta.status_code})"
+    except requests.exceptions.SSLError:
+        return f"⚠️ {nome}: Erro SSL no certificado do site (tentando ignorar)."
+    except requests.exceptions.HTTPError as e:
+        return f"🚨 {nome}: Erro HTTP {e.response.status_code} ao acessar {url}"
+    except requests.exceptions.RequestException as e:
+        return f"🚫 {nome}: Erro de conexão ({e})"
 
-# Loop principal de monitoramento contínuo
-while True:
-    for site in sites:
-        print(f"⏳ Verificando {site['url']}...")
-        try:
-            response = requests.get(site['url'], headers=HEADERS, timeout=15, verify=True)
-            if response.status_code == 200:
-                msg = f"✅ {site['nome']} está online!"
-            else:
-                msg = f"⚠️ {site['nome']} retornou status {response.status_code}"
-        except requests.exceptions.SSLError as ssl_err:
-            msg = f"🚨 Erro SSL em {site['nome']}: {ssl_err}"
-        except requests.exceptions.RequestException as e:
-            msg = f"🚨 Erro ao acessar {site['nome']}: {e}"
-        print(msg)
-        send_telegram(msg)
+def main():
+    enviar_mensagem("🚀 Monitoramento 24h iniciado pelo GitHub Actions!")
+    while True:
+        hora_atual = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        enviar_mensagem(f"🕒 Verificação automática iniciada em {hora_atual}")
+        
+        for nome, url in SITES.items():
+            resultado = verificar_site(nome, url)
+            print(resultado)
+            enviar_mensagem(resultado)
+        
+        enviar_mensagem("✅ Verificação concluída. Próxima em 2 horas ⏳")
+        time.sleep(7200)  # ⏱️ 2 horas (7200 segundos)
 
-    # Aguardar 1 hora antes do próximo ciclo (produção)
-    time.sleep(3600)
+if __name__ == "__main__":
+    main()
