@@ -1,34 +1,28 @@
 name: Monitoramento 24h
 
 on:
-  schedule:
-    - cron: '0 */12 * * *'  # ⏰ Executa a cada 12 horas
-  workflow_dispatch:        # ▶️ Permite rodar manualmente pelo botão "Run workflow"
+  workflow_dispatch:  # Permite executar manualmente
 
 jobs:
-  build:
+  monitor:
     runs-on: ubuntu-latest
 
     steps:
-      # 📦 Etapa 1: Baixar o código do repositório
-      - name: Checkout do código
-        uses: actions/checkout@v3
+    - name: Checkout do código
+      uses: actions/checkout@v3
 
-      # 🐍 Etapa 2: Configurar o Python
-      - name: Configurar Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
+    - name: Configurar Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
 
-      # 📚 Etapa 3: Instalar dependências do Python a partir do requirements.txt
-      - name: Instalar dependências
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+    - name: Instalar dependências
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
 
-      # 🚀 Etapa 4: Executar o script monitor.py com os secrets do Telegram
-      - name: Rodar monitor.py
-        env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python monitor.py
+    - name: Rodar monitor.py
+      env:
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      run: python monitor.py
