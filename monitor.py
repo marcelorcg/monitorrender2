@@ -1,65 +1,52 @@
+import os
 import requests
-import time
 from datetime import datetime
 from telegram import Bot
+from urllib3.exceptions import InsecureRequestWarning
 import urllib3
 
-# -----------------------------
-# Configurações
-# -----------------------------
-TELEGRAM_TOKEN = "SEU_TELEGRAM_TOKEN_AQUI"
-TELEGRAM_CHAT_ID = "SEU_CHAT_ID_AQUI"
+# Ignora avisos SSL para sites confiáveis
+urllib3.disable_warnings(InsecureRequestWarning)
 
-URLS = {
-    "Câmara SJC": "https://www.camarasjc.sp.gov.br/a-camara/concurso-publico.php",
-    "Prefeitura Caçapava": "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos/concurso-publico-012024"
-}
+# Pega os valores do GitHub Actions via environment variables
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) "
-                  "Chrome/116.0.0.0 Safari/537.36"
-}
-
-INTERVALO_HORAS = 2  # intervalo entre verificações
-
-# -----------------------------
-# Inicializar bot Telegram
-# -----------------------------
 bot = Bot(token=TELEGRAM_TOKEN)
+
+# Sites a serem monitorados
+sites = [
+    {
+        "nome": "Prefeitura de Caçapava",
+        "url": "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos/concurso-publico-012024"
+    },
+    {
+        "nome": "Câmara de São José dos Campos",
+        "url": "https://www.camarasjc.sp.gov.br/a-camara/concurso-publico.php"
+    }
+]
 
 def enviar_telegram(mensagem):
     bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=mensagem)
 
-# -----------------------------
-# Suprimir warnings SSL
-# -----------------------------
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+def verificar_site(site):
+    try:
+        response = requests.get(site["url"], headers={"User-Agent": "Mozilla/5.0"}, verify=False)
+        status = response.status_code
+        if status == 200:
+            return f"✅ {site['nome']}: Site acessado com sucesso! (Status {status})"
+        else:
+            return f"🚨 {site['nome']}: Erro HTTP {status} ao acessar {site['url']}"
+    except requests.exceptions.RequestException as e:
+        return f"🚨 {site['nome']}: Erro ao acessar {site['url']}\n{e}"
 
-# -----------------------------
-# Loop principal
-# -----------------------------
-enviar_telegram("🚀 Monitoramento 24h iniciado pelo GitHub Actions!")
+def monitorar():
+    agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    enviar_telegram(f"🚀 Monitoramento 24h iniciado pelo GitHub Actions!\n🕒 Verificação automática iniciada em {agora}")
+    for site in sites:
+        resultado = verificar_site(site)
+        enviar_telegram(resultado)
+    enviar_telegram("✅ Verificação concluída. Próxima em 2 horas ⏳")
 
-while True:
-    timestamp = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    enviar_telegram(f"🕒 Verificação automática iniciada em {timestamp}")
-
-    for nome, url in URLS.items():
-        try:
-            if "cacapava" in url:
-                # Ignorar SSL
-                response = requests.get(url, headers=HEADERS, verify=False, timeout=30)
-            else:
-                response = requests.get(url, headers=HEADERS, timeout=30)
-
-            if response.status_code == 200:
-                enviar_telegram(f"✅ {nome}: Site acessado com sucesso! (Status 200)")
-            else:
-                enviar_telegram(f"⚠️ {nome}: Status HTTP {response.status_code}")
-
-        except requests.exceptions.RequestException as e:
-            enviar_telegram(f"🚨 {nome}: Erro ao acessar {url}\n{str(e)}")
-
-    enviar_telegram(f"✅ Verificação concluída. Próxima em {INTERVALO_HORAS} horas ⏳")
-    time.sleep(INTERVALO_HORAS * 3600)
+if __name__ == "__main__":
+    monitorar()
