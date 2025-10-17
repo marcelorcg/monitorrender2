@@ -1,80 +1,80 @@
-import os
-import requests
-from bs4 import BeautifulSoup
-import json
-import datetime
-import time
-from telegram import Bot
-import urllib3
+import os  # type: ignore
+import requests  # type: ignore
+import time  # type: ignore
+import json  # type: ignore
+from datetime import datetime  # type: ignore
+from bs4 import BeautifulSoup  # type: ignore
+from telegram import Bot  # type: ignore
 
-# Ignorar avisos SSL
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# 🔐 Variáveis de ambiente (vindas do GitHub Secrets)
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")  # type: ignore
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")  # type: ignore
 
-# Telegram
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-bot = Bot(token=TELEGRAM_TOKEN)
+bot = Bot(token=TELEGRAM_TOKEN)  # type: ignore
 
-# URLs a monitorar
+# 🕒 Caminho para o cache (salva último conteúdo conhecido)
+CACHE_FILE = "cache_monitor.json"
+
+# 🌐 Sites monitorados
 SITES = {
     "CACAPAVA": "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos/concurso-publico-012024",
     "SJC": "https://www.camarasjc.sp.gov.br/a-camara/concurso-publico.php"
 }
 
-# Cache para comparar alterações
-CACHE_FILE = "cache.json"
 
-# Inicializa cache vazio se não existir
-if not os.path.exists(CACHE_FILE):
-    with open(CACHE_FILE, "w") as f:
-        json.dump({}, f)
+def carregar_cache():  # type: ignore
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {site: "" for site in SITES}
 
-# Função para enviar mensagens Telegram
-def enviar_mensagem(texto):
-    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=texto)
 
-# Função para buscar conteúdo da página
-def buscar_site(nome, url):
+def salvar_cache(cache):  # type: ignore
+    with open(CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump(cache, f, indent=4, ensure_ascii=False)
+
+
+def obter_conteudo(url):  # type: ignore
     try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(url, headers=headers, verify=False)
-        if response.status_code == 200:
-            return response.text
-        else:
-            return f"ERRO HTTP {response.status_code}"
+        resposta = requests.get(url, verify=False, timeout=20)
+        resposta.raise_for_status()
+        soup = BeautifulSoup(resposta.text, "html.parser")
+        return soup.get_text()
     except Exception as e:
         return f"ERRO: {e}"
 
-# Função principal
-def main():
-    while True:
-        agora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        enviar_mensagem(f"🚀 Monitoramento 24h iniciado pelo GitHub Actions!\n🕒 Verificação automática iniciada em {agora}")
-        
-        # Carrega cache
-        with open(CACHE_FILE, "r") as f:
-            cache = json.load(f)
-        
-        for nome, url in SITES.items():
-            conteudo_atual = buscar_site(nome, url)
-            
-            if nome in cache:
-                if conteudo_atual != cache[nome]:
-                    enviar_mensagem(f"⚡ {nome}: Conteúdo atualizado no site!\n{url}")
-                else:
-                    print(f"{nome}: sem alterações detectadas.")
-            else:
-                # primeira execução
-                enviar_mensagem(f"✅ {nome}: monitoramento iniciado.\n{url}")
-            
-            # Atualiza cache
-            cache[nome] = conteudo_atual
-        
-        with open(CACHE_FILE, "w") as f:
-            json.dump(cache, f)
-        
-        enviar_mensagem("✅ Verificação concluída. Próxima em 2 horas ⏳")
-        time.sleep(7200)  # 2 horas
 
-if __name__ == "__main__":
+def enviar_mensagem(mensagem):  # type: ignore
+    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=mensagem)
+
+
+def main():  # type: ignore
+    cache = carregar_cache()
+
+    mensagem_inicial = (
+        "🚀 Monitoramento 24h iniciado pelo GitHub Actions!\n"
+        f"🕒 Verificação automática iniciada em {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+    )
+    enviar_mensagem(mensagem_inicial)
+
+    for nome, url in SITES.items():
+        conteudo_atual = obter_conteudo(url)
+        conteudo_anterior = cache.get(nome, "")
+
+        if "ERRO:" in conteudo_atual:
+            enviar_mensagem(f"🚨 {nome}: {conteudo_atual}\n{url}")
+        elif conteudo_atual != conteudo_anterior:
+            enviar_mensagem(
+                f"📢 {nome}: Detectada nova alteração no site!\n🔗 {url}\n"
+                f"⏰ {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+            )
+            cache[nome] = conteudo_atual
+        else:
+            enviar_mensagem(f"✅ {nome}: Nenhuma alteração detectada.\n{url}")
+
+    salvar_cache(cache)
+    enviar_mensagem("✅ Verificação concluída. Próxima em 2 horas ⏳")
+
+
+if __name__ == "__main__":  # type: ignore
     main()
