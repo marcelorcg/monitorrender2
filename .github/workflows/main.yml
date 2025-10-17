@@ -1,36 +1,29 @@
-name: Monitoramento 24h
+name: Monitoramento 24h (horário de Brasília)
 
-# Eventos que disparam o workflow
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:  # Permite rodar manualmente pelo botão "Run workflow"
+  workflow_dispatch:  # permite executar manualmente
+  schedule:
+    # Roda a cada 2h no horário de Brasília (UTC−3)
+    - cron: "0 10,12,14,16,18,20,22,0,2,4,6,8 * * *"
 
 jobs:
   monitoramento:
     runs-on: ubuntu-latest
-
     steps:
-      # 1️⃣ Clonar o repositório
-      - name: Checkout repository
+      - name: 🧩 Clonar repositório
         uses: actions/checkout@v3
 
-      # 2️⃣ Configurar Python
-      - name: Setup Python
+      - name: 🐍 Configurar Python
         uses: actions/setup-python@v4
         with:
-          python-version: 3.11
+          python-version: "3.11"
 
-      # 3️⃣ Instalar dependências do requirements.txt
-      - name: Install dependencies
+      - name: 📦 Instalar dependências
         run: |
-          python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 4️⃣ Rodar o monitoramento
-      - name: Run monitor.py
-        run: python monitor.py
+      - name: 🚀 Executar monitoramento
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python monitor.py
