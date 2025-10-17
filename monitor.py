@@ -1,80 +1,80 @@
-import requests
-import json
 import os
-from datetime import datetime
+import time
+import requests
+import urllib3
 from telegram import Bot
 
-# ==========================
-# Configurações do Telegram
-# ==========================
-TELEGRAM_TOKEN = "SEU_TELEGRAM_TOKEN_AQUI"
-TELEGRAM_CHAT_ID = "SEU_CHAT_ID_AQUI"
+# 🚫 Desativar avisos SSL
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# 🔒 Token e Chat ID vindos dos Secrets
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+
+# 🤖 Inicializa o bot
 bot = Bot(token=TELEGRAM_TOKEN)
 
-# ==========================
-# URLs dos sites
-# ==========================
-sites = {
-    "Prefeitura Caçapava": "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos/concurso-publico-012024",
-    "Câmara SJC": "https://www.camarasjc.sp.gov.br/a-camara/concurso-publico.php"
+# 🌐 URLs a serem monitoradas
+URLS = {
+    "Prefeitura de Caçapava": "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos",
+    "Câmara de Caçapava": "https://www.camaracacapava.sp.gov.br/concursos",
 }
 
-# ==========================
-# Pasta de cache
-# ==========================
-CACHE_DIR = "cache"
-os.makedirs(CACHE_DIR, exist_ok=True)
+# 💾 Cache inicializado (padrão)
+CACHE_FILE = "cache.txt"
+cache = {}
 
-# ==========================
-# Funções
-# ==========================
-def load_cache(site_name):
-    path = os.path.join(CACHE_DIR, f"{site_name}.json")
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+if os.path.exists(CACHE_FILE):
+    with open(CACHE_FILE, "r", encoding="utf-8") as f:
+        for line in f:
+            k, v = line.strip().split("=", 1)
+            cache[k] = v
+else:
+    # Inicializa cache com valores padrão
+    for nome, url in URLS.items():
+        cache[nome] = ""
+    with open(CACHE_FILE, "w", encoding="utf-8") as f:
+        for nome, valor in cache.items():
+            f.write(f"{nome}={valor}\n")
 
-def save_cache(site_name, data):
-    path = os.path.join(CACHE_DIR, f"{site_name}.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+# 🕓 Intervalo entre verificações (em segundos)
+INTERVALO = 300  # 5 minutos
 
-def get_site_content(url):
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+print("🚀 Iniciando monitoramento 24h (Prefeitura e Câmara de Caçapava)...")
+
+def salvar_cache():
+    """Salva o conteúdo atual do cache no arquivo"""
+    with open(CACHE_FILE, "w", encoding="utf-8") as f:
+        for nome, valor in cache.items():
+            f.write(f"{nome}={valor}\n")
+
+def enviar_mensagem(mensagem):
+    """Envia mensagem para o Telegram"""
     try:
-        response = requests.get(url, headers=headers, verify=False, timeout=15)
-        response.raise_for_status()
-        return response.text
-    except requests.exceptions.HTTPError as e:
-        return f"HTTP Error {e.response.status_code}"
-    except requests.exceptions.RequestException as e:
-        return f"Request Error: {str(e)}"
+        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=mensagem)
+        print("📩 Mensagem enviada com sucesso ao Telegram.")
+    except Exception as e:
+        print(f"⚠️ Erro ao enviar mensagem: {e}")
 
-def check_site(site_name, url):
-    cache = load_cache(site_name)
-    current_content = get_site_content(url)
+def verificar_sites():
+    """Verifica os sites em busca de alterações"""
+    for nome, url in URLS.items():
+        try:
+            resposta = requests.get(url, verify=False, timeout=15)
+            conteudo = resposta.text.strip()
 
-    # Se conteúdo mudou ou não existe cache
-    if cache.get("content") != current_content:
-        # Atualiza cache
-        save_cache(site_name, {"content": current_content, "last_checked": datetime.now().isoformat()})
-        # Mensagem para Telegram
-        message = f"🕒 {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n📢 Site atualizado: {site_name}\n{url}"
-        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
-        return f"Alteração detectada e mensagem enviada para Telegram: {site_name}"
-    else:
-        return f"Sem alterações no site: {site_name}"
+            if cache.get(nome) != conteudo:
+                if cache.get(nome):
+                    mensagem = f"🔔 Atualização detectada em {nome}!\n{url}"
+                    enviar_mensagem(mensagem)
+                cache[nome] = conteudo
+                salvar_cache()
 
-# ==========================
-# Execução do monitoramento
-# ==========================
-if __name__ == "__main__":
-    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="🚀 Monitoramento 24h iniciado pelo GitHub Actions!")
-    print("Monitoramento iniciado.")
+            print(f"✅ Site {nome} verificado com sucesso.")
+        except Exception as e:
+            print(f"🚫 Erro ao acessar {nome}: {e}")
 
-    for site_name, url in sites.items():
-        status = check_site(site_name, url)
-        print(status)
-
-    print("Verificação concluída. Próxima execução em 2 horas ⏳")
+while True:
+    verificar_sites()
+    print(f"⏳ Aguardando {INTERVALO // 60} minutos para próxima verificação...\n")
+    time.sleep(INTERVALO)
