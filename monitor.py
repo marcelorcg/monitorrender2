@@ -1,72 +1,49 @@
 import os
-import time
 import requests
-import hashlib
-import asyncio
+import urllib3
+from bs4 import BeautifulSoup
 from telegram import Bot
+import asyncio
 
-# 🔒 Variáveis de ambiente do GitHub Secrets
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+# 🔇 Desativa o aviso de certificado SSL
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# 🤖 Inicializa o bot
+# 🔐 Variáveis de ambiente
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
 bot = Bot(token=TELEGRAM_TOKEN)
 
-# 🧩 Cache de conteúdo (evita avisos repetidos)
-cache = {
-    "cacapava": "",
-    "sjc": ""
+# 🌐 URLs dos sites
+URLS = {
+    "CACAPAVA": "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos/concurso-publico-012024",
+    "CAMARA_SJC": "https://www.camarasjc.sp.gov.br/concursos-publicos"
 }
 
-# 📨 Envio de mensagens com asyncio.run()
-def enviar_mensagem(texto):
-    try:
-        asyncio.run(bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=texto))
-        print("✅ Mensagem enviada com sucesso ao Telegram.")
-    except Exception as e:
-        print(f"⚠️ Erro ao enviar mensagem: {e}")
+# 📩 Função para enviar mensagens
+async def enviar_mensagem(texto):
+    await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=texto)
 
-# 🌐 Função para verificar se houve mudança no site
-def verificar_site(nome, url):
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-        }
+# 🔍 Função para verificar sites
+async def verificar_sites():
+    for nome, url in URLS.items():
+        try:
+            # Adiciona um User-Agent para evitar bloqueio 403
+            response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, verify=False)
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, "html.parser")
+                texto = soup.get_text(strip=True)[:300]  # resumo dos 300 primeiros caracteres
+                mensagem = f"✅ {nome}: Site acessado com sucesso!\n{url}\n\n{texto}\n✅ Verificação concluída. Próxima em 2 horas ⏳"
+            else:
+                mensagem = f"🚨 {nome}: Erro HTTP {response.status_code} ao acessar {url}"
+        except Exception as e:
+            mensagem = f"⚠️ {nome}: Erro ao acessar o site.\nDetalhes: {str(e)}"
+        await enviar_mensagem(mensagem)
 
-        # SSL ignorado (confia no site)
-        response = requests.get(url, headers=headers, verify=False, timeout=15)
-        response.raise_for_status()
+# 🚀 Executa o monitoramento
+async def main():
+    await enviar_mensagem("🚀 Monitoramento 24h iniciado pelo GitHub Actions!\n🕒 Verificação automática iniciada...")
+    await verificar_sites()
 
-        # Gera hash do conteúdo HTML
-        novo_hash = hashlib.sha256(response.text.encode("utf-8")).hexdigest()
-
-        # Se cache estiver vazio, apenas inicializa
-        if cache[nome] == "":
-            cache[nome] = novo_hash
-            print(f"🔹 Cache inicializado para {nome}")
-            return
-
-        # Se houve alteração no hash → site mudou
-        if cache[nome] != novo_hash:
-            cache[nome] = novo_hash
-            mensagem = f"🔔 Mudança detectada no site {nome.upper()}!\n{url}"
-            enviar_mensagem(mensagem)
-            print(mensagem)
-        else:
-            print(f"✅ Nenhuma mudança detectada em {nome}")
-
-    except requests.exceptions.HTTPError as e:
-        enviar_mensagem(f"🚨 {nome.upper()}: Erro HTTP {e.response.status_code} ao acessar {url}")
-    except Exception as e:
-        enviar_mensagem(f"⚠️ {nome.upper()}: Erro inesperado: {e}")
-
-# 🚀 Envio de início
-enviar_mensagem("🚀 Monitoramento 24h iniciado pelo GitHub Actions!")
-
-# 🔁 Loop contínuo — verifica a cada 2 horas
-while True:
-    enviar_mensagem("🕒 Verificação automática iniciada...")
-    verificar_site("cacapava", "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos/concurso-publico-012024")
-    verificar_site("sjc", "https://www.camarasjc.sp.gov.br/a-camara/concurso-publico.php")
-    enviar_mensagem("✅ Verificação concluída. Próxima em 2 horas ⏳")
-    time.sleep(7200)  # 2 horas (7200 segundos)
+if __name__ == "__main__":
+    asyncio.run(main())
