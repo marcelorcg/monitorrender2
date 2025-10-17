@@ -1,80 +1,72 @@
 import os
 import time
 import requests
-import urllib3
+import hashlib
+import asyncio
 from telegram import Bot
 
-# 🚫 Desativar avisos SSL
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-# 🔒 Token e Chat ID vindos dos Secrets
+# 🔒 Variáveis de ambiente do GitHub Secrets
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 # 🤖 Inicializa o bot
 bot = Bot(token=TELEGRAM_TOKEN)
 
-# 🌐 URLs a serem monitoradas
-URLS = {
-    "Prefeitura de Caçapava": "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos",
-    "Câmara de Caçapava": "https://www.camaracacapava.sp.gov.br/concursos",
+# 🧩 Cache de conteúdo (evita avisos repetidos)
+cache = {
+    "cacapava": "",
+    "sjc": ""
 }
 
-# 💾 Cache inicializado (padrão)
-CACHE_FILE = "cache.txt"
-cache = {}
-
-if os.path.exists(CACHE_FILE):
-    with open(CACHE_FILE, "r", encoding="utf-8") as f:
-        for line in f:
-            k, v = line.strip().split("=", 1)
-            cache[k] = v
-else:
-    # Inicializa cache com valores padrão
-    for nome, url in URLS.items():
-        cache[nome] = ""
-    with open(CACHE_FILE, "w", encoding="utf-8") as f:
-        for nome, valor in cache.items():
-            f.write(f"{nome}={valor}\n")
-
-# 🕓 Intervalo entre verificações (em segundos)
-INTERVALO = 300  # 5 minutos
-
-print("🚀 Iniciando monitoramento 24h (Prefeitura e Câmara de Caçapava)...")
-
-def salvar_cache():
-    """Salva o conteúdo atual do cache no arquivo"""
-    with open(CACHE_FILE, "w", encoding="utf-8") as f:
-        for nome, valor in cache.items():
-            f.write(f"{nome}={valor}\n")
-
-def enviar_mensagem(mensagem):
-    """Envia mensagem para o Telegram"""
+# 📨 Envio de mensagens com asyncio.run()
+def enviar_mensagem(texto):
     try:
-        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=mensagem)
-        print("📩 Mensagem enviada com sucesso ao Telegram.")
+        asyncio.run(bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=texto))
+        print("✅ Mensagem enviada com sucesso ao Telegram.")
     except Exception as e:
         print(f"⚠️ Erro ao enviar mensagem: {e}")
 
-def verificar_sites():
-    """Verifica os sites em busca de alterações"""
-    for nome, url in URLS.items():
-        try:
-            resposta = requests.get(url, verify=False, timeout=15)
-            conteudo = resposta.text.strip()
+# 🌐 Função para verificar se houve mudança no site
+def verificar_site(nome, url):
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        }
 
-            if cache.get(nome) != conteudo:
-                if cache.get(nome):
-                    mensagem = f"🔔 Atualização detectada em {nome}!\n{url}"
-                    enviar_mensagem(mensagem)
-                cache[nome] = conteudo
-                salvar_cache()
+        # SSL ignorado (confia no site)
+        response = requests.get(url, headers=headers, verify=False, timeout=15)
+        response.raise_for_status()
 
-            print(f"✅ Site {nome} verificado com sucesso.")
-        except Exception as e:
-            print(f"🚫 Erro ao acessar {nome}: {e}")
+        # Gera hash do conteúdo HTML
+        novo_hash = hashlib.sha256(response.text.encode("utf-8")).hexdigest()
 
+        # Se cache estiver vazio, apenas inicializa
+        if cache[nome] == "":
+            cache[nome] = novo_hash
+            print(f"🔹 Cache inicializado para {nome}")
+            return
+
+        # Se houve alteração no hash → site mudou
+        if cache[nome] != novo_hash:
+            cache[nome] = novo_hash
+            mensagem = f"🔔 Mudança detectada no site {nome.upper()}!\n{url}"
+            enviar_mensagem(mensagem)
+            print(mensagem)
+        else:
+            print(f"✅ Nenhuma mudança detectada em {nome}")
+
+    except requests.exceptions.HTTPError as e:
+        enviar_mensagem(f"🚨 {nome.upper()}: Erro HTTP {e.response.status_code} ao acessar {url}")
+    except Exception as e:
+        enviar_mensagem(f"⚠️ {nome.upper()}: Erro inesperado: {e}")
+
+# 🚀 Envio de início
+enviar_mensagem("🚀 Monitoramento 24h iniciado pelo GitHub Actions!")
+
+# 🔁 Loop contínuo — verifica a cada 2 horas
 while True:
-    verificar_sites()
-    print(f"⏳ Aguardando {INTERVALO // 60} minutos para próxima verificação...\n")
-    time.sleep(INTERVALO)
+    enviar_mensagem("🕒 Verificação automática iniciada...")
+    verificar_site("cacapava", "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos/concurso-publico-012024")
+    verificar_site("sjc", "https://www.camarasjc.sp.gov.br/a-camara/concurso-publico.php")
+    enviar_mensagem("✅ Verificação concluída. Próxima em 2 horas ⏳")
+    time.sleep(7200)  # 2 horas (7200 segundos)
