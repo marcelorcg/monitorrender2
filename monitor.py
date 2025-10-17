@@ -1,49 +1,80 @@
 import os
 import requests
-import urllib3
 from bs4 import BeautifulSoup
+import json
+import datetime
+import time
 from telegram import Bot
-import asyncio
+import urllib3
 
-# 🔇 Desativa o aviso de certificado SSL
+# Ignorar avisos SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# 🔐 Variáveis de ambiente
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-
+# Telegram
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 bot = Bot(token=TELEGRAM_TOKEN)
 
-# 🌐 URLs dos sites
-URLS = {
+# URLs a monitorar
+SITES = {
     "CACAPAVA": "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos/concurso-publico-012024",
-    "CAMARA_SJC": "https://www.camarasjc.sp.gov.br/concursos-publicos"
+    "SJC": "https://www.camarasjc.sp.gov.br/a-camara/concurso-publico.php"
 }
 
-# 📩 Função para enviar mensagens
-async def enviar_mensagem(texto):
-    await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=texto)
+# Cache para comparar alterações
+CACHE_FILE = "cache.json"
 
-# 🔍 Função para verificar sites
-async def verificar_sites():
-    for nome, url in URLS.items():
-        try:
-            # Adiciona um User-Agent para evitar bloqueio 403
-            response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, verify=False)
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, "html.parser")
-                texto = soup.get_text(strip=True)[:300]  # resumo dos 300 primeiros caracteres
-                mensagem = f"✅ {nome}: Site acessado com sucesso!\n{url}\n\n{texto}\n✅ Verificação concluída. Próxima em 2 horas ⏳"
+# Inicializa cache vazio se não existir
+if not os.path.exists(CACHE_FILE):
+    with open(CACHE_FILE, "w") as f:
+        json.dump({}, f)
+
+# Função para enviar mensagens Telegram
+def enviar_mensagem(texto):
+    bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=texto)
+
+# Função para buscar conteúdo da página
+def buscar_site(nome, url):
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        response = requests.get(url, headers=headers, verify=False)
+        if response.status_code == 200:
+            return response.text
+        else:
+            return f"ERRO HTTP {response.status_code}"
+    except Exception as e:
+        return f"ERRO: {e}"
+
+# Função principal
+def main():
+    while True:
+        agora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        enviar_mensagem(f"🚀 Monitoramento 24h iniciado pelo GitHub Actions!\n🕒 Verificação automática iniciada em {agora}")
+        
+        # Carrega cache
+        with open(CACHE_FILE, "r") as f:
+            cache = json.load(f)
+        
+        for nome, url in SITES.items():
+            conteudo_atual = buscar_site(nome, url)
+            
+            if nome in cache:
+                if conteudo_atual != cache[nome]:
+                    enviar_mensagem(f"⚡ {nome}: Conteúdo atualizado no site!\n{url}")
+                else:
+                    print(f"{nome}: sem alterações detectadas.")
             else:
-                mensagem = f"🚨 {nome}: Erro HTTP {response.status_code} ao acessar {url}"
-        except Exception as e:
-            mensagem = f"⚠️ {nome}: Erro ao acessar o site.\nDetalhes: {str(e)}"
-        await enviar_mensagem(mensagem)
-
-# 🚀 Executa o monitoramento
-async def main():
-    await enviar_mensagem("🚀 Monitoramento 24h iniciado pelo GitHub Actions!\n🕒 Verificação automática iniciada...")
-    await verificar_sites()
+                # primeira execução
+                enviar_mensagem(f"✅ {nome}: monitoramento iniciado.\n{url}")
+            
+            # Atualiza cache
+            cache[nome] = conteudo_atual
+        
+        with open(CACHE_FILE, "w") as f:
+            json.dump(cache, f)
+        
+        enviar_mensagem("✅ Verificação concluída. Próxima em 2 horas ⏳")
+        time.sleep(7200)  # 2 horas
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
