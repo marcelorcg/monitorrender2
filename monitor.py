@@ -4,8 +4,7 @@ import difflib
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import requests
-from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter, Retry
 from dotenv import load_dotenv
 import urllib3
 
@@ -28,7 +27,7 @@ def enviar_telegram(mensagem):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     data = {"chat_id": TELEGRAM_CHAT_ID, "text": mensagem}
     try:
-        requests.post(url, data=data, timeout=30)
+        requests.post(url, data=data)
     except Exception as e:
         print(f"⚠️ Erro ao enviar Telegram: {e}")
 
@@ -42,18 +41,16 @@ def salvar_hashes(hashes):
     with open(HASH_FILE, "w", encoding="utf-8") as f:
         json.dump(hashes, f, ensure_ascii=False, indent=2)
 
-def criar_sessao_com_retries(retries=3, backoff_factor=0.5, status_forcelist=(403, 500, 502, 503, 504)):
-    """Cria uma sessão requests com retries automáticos."""
+def criar_sessao_retries():
+    """Cria sessão Requests com retries para evitar 403/erros temporários"""
     session = requests.Session()
-    retry = Retry(
-        total=retries,
-        read=retries,
-        connect=retries,
-        backoff_factor=backoff_factor,
-        status_forcelist=status_forcelist,
-        raise_on_status=False,
+    retries = Retry(
+        total=5,  # número de tentativas
+        backoff_factor=1,  # espera exponencial entre tentativas
+        status_forcelist=[403, 500, 502, 503, 504],
+        allowed_methods=["HEAD", "GET", "OPTIONS"]
     )
-    adapter = HTTPAdapter(max_retries=retry)
+    adapter = HTTPAdapter(max_retries=retries)
     session.mount("http://", adapter)
     session.mount("https://", adapter)
     return session
@@ -61,6 +58,7 @@ def criar_sessao_com_retries(retries=3, backoff_factor=0.5, status_forcelist=(40
 def monitorar():
     tz = ZoneInfo("America/Sao_Paulo")
     hashes = carregar_hashes()
+    session = criar_sessao_retries()
 
     sites = [
         {
@@ -70,24 +68,16 @@ def monitorar():
         },
         {
             "url": "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos/concurso-publico-012024",
-            "headers": {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/131.0",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-                "Referer": "https://www.cacapava.sp.gov.br/"
-            },
+            "headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
             "verify": True
         }
     ]
-
-    session = criar_sessao_com_retries()
 
     for site in sites:
         url = site["url"]
         headers = site.get("headers", {})
         verify_ssl = site.get("verify", True)
         print(f"⏳ Verificando {url}...")
-
         try:
             response = session.get(url, headers=headers, verify=verify_ssl, timeout=30)
             response.raise_for_status()
