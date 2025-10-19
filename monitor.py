@@ -4,8 +4,11 @@ import difflib
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import requests
-from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+import urllib3
+
+# 🔹 Suprime warnings de SSL
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # 🔹 Carregar variáveis do .env
 load_dotenv()
@@ -38,30 +41,33 @@ def salvar_hashes(hashes):
         json.dump(hashes, f, ensure_ascii=False, indent=2)
 
 def monitorar():
-    tz = ZoneInfo("America/Sao_Paulo")  # horário de Brasília
+    tz = ZoneInfo("America/Sao_Paulo")
     hashes = carregar_hashes()
 
     sites = [
-        "https://www.camarasjc.sp.gov.br/a-camara/concurso-publico.php",
-        "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos/concurso-publico-012024"
+        {
+            "url": "https://www.camarasjc.sp.gov.br/a-camara/concurso-publico.php",
+            "headers": {}  # SSL será ignorado, sem cabeçalho especial
+        },
+        {
+            "url": "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos/concurso-publico-012024",
+            "headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        }
     ]
 
     for site in sites:
-        print(f"⏳ Verificando {site}...")
+        url = site["url"]
+        headers = site.get("headers", {})
+        print(f"⏳ Verificando {url}...")
         try:
-            # 🔹 Fazer requisição GET
-            response = requests.get(site, timeout=30)
+            response = requests.get(url, headers=headers, verify=False, timeout=30)
             response.raise_for_status()
+            novo_conteudo = response.text
 
-            # 🔹 Extrair texto da página
-            soup = BeautifulSoup(response.text, "html.parser")
-            novo_conteudo = soup.get_text(separator="\n", strip=True)
-
-            # 🔹 Comparar com hash antigo
-            hash_antigo = hashes.get(site, "")
+            hash_antigo = hashes.get(url, "")
             if hash_antigo == "":
-                print(f"🧩 Primeiro monitoramento de {site} (hash salvo).")
-                hashes[site] = novo_conteudo
+                print(f"🧩 Primeiro monitoramento de {url} (hash salvo).")
+                hashes[url] = novo_conteudo
                 salvar_hashes(hashes)
             elif hash_antigo != novo_conteudo:
                 diff = list(difflib.unified_diff(
@@ -70,19 +76,19 @@ def monitorar():
                     lineterm=""
                 ))
                 texto_novo = "\n".join([linha[1:] for linha in diff if linha.startswith("+") and not linha.startswith("+++")])
-                msg = f"🆕 Atualização detectada em {site}!\n\n{texto_novo}\n\n📅 {datetime.now(tz).strftime('%d/%m/%Y %H:%M:%S')}"
+                msg = f"🆕 Atualização detectada em {url}!\n\n{texto_novo}\n\n📅 {datetime.now(tz).strftime('%d/%m/%Y %H:%M:%S')}"
                 print(msg)
                 enviar_telegram(msg)
-                hashes[site] = novo_conteudo
+                hashes[url] = novo_conteudo
                 salvar_hashes(hashes)
             else:
-                print(f"✅ Sem mudanças em {site}.")
+                print(f"✅ Sem mudanças em {url}.")
         except requests.exceptions.HTTPError as e:
-            msg = f"🚨 Erro HTTP ao acessar {site}: {e}\n📅 {datetime.now(tz).strftime('%d/%m/%Y %H:%M:%S')}"
+            msg = f"🚨 Erro HTTP ao acessar {url}: {e}\n📅 {datetime.now(tz).strftime('%d/%m/%Y %H:%M:%S')}"
             print(msg)
             enviar_telegram(msg)
         except requests.exceptions.RequestException as e:
-            msg = f"🚨 Erro ao acessar {site}: {e}\n📅 {datetime.now(tz).strftime('%d/%m/%Y %H:%M:%S')}"
+            msg = f"🚨 Erro ao acessar {url}: {e}\n📅 {datetime.now(tz).strftime('%d/%m/%Y %H:%M:%S')}"
             print(msg)
             enviar_telegram(msg)
 
