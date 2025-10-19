@@ -1,5 +1,3 @@
-# monitor.py
-
 import os
 import json
 import difflib
@@ -15,15 +13,13 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# 🔹 Verificar se as variáveis estão definidas
 if TELEGRAM_TOKEN is None or TELEGRAM_CHAT_ID is None:
     raise ValueError("As variáveis TELEGRAM_TOKEN e TELEGRAM_CHAT_ID devem estar definidas!")
 
-# 🔹 Arquivo para salvar hashes das páginas
 HASH_FILE = "hashes.json"
 
-# 🔹 Função de envio de mensagem pelo Telegram
 def enviar_telegram(mensagem):
+    """Envia mensagem pelo Telegram."""
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     data = {"chat_id": TELEGRAM_CHAT_ID, "text": mensagem}
     try:
@@ -31,19 +27,16 @@ def enviar_telegram(mensagem):
     except Exception as e:
         print(f"⚠️ Erro ao enviar Telegram: {e}")
 
-# 🔹 Carregar hashes salvos
 def carregar_hashes():
     if os.path.exists(HASH_FILE):
         with open(HASH_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
 
-# 🔹 Salvar hashes atualizados
 def salvar_hashes(hashes):
     with open(HASH_FILE, "w", encoding="utf-8") as f:
         json.dump(hashes, f, ensure_ascii=False, indent=2)
 
-# 🔹 Função principal de monitoramento
 def monitorar():
     tz = ZoneInfo("America/Sao_Paulo")  # horário de Brasília
     hashes = carregar_hashes()
@@ -61,7 +54,7 @@ def monitorar():
             print(f"⏳ Verificando {site}...")
             try:
                 page.goto(site, wait_until="load", timeout=30000)
-                novo_conteudo = page.inner_text("body")  # texto visível da página
+                novo_conteudo = page.inner_text("body")
 
                 hash_antigo = hashes.get(site, "")
                 if hash_antigo == "":
@@ -69,7 +62,6 @@ def monitorar():
                     hashes[site] = novo_conteudo
                     salvar_hashes(hashes)
                 elif hash_antigo != novo_conteudo:
-                    # Detecta mudança e envia somente o texto novo
                     diff = list(difflib.unified_diff(
                         hash_antigo.splitlines(),
                         novo_conteudo.splitlines(),
@@ -90,8 +82,7 @@ def monitorar():
 
         browser.close()
 
-# 🔹 Executar apenas uma vez
 if __name__ == "__main__":
     print("🚀 Monitoramento diário iniciado!")
     monitorar()
-    print("✅ Verificação concluída. Script finalizado.")
+    print("✅ Monitoramento concluído!")
