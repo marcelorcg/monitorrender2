@@ -1,21 +1,23 @@
+# monitor.py
+
 import os
 import json
 import difflib
+import requests
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from playwright.sync_api import sync_playwright
-import requests
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
 # 🔹 Carregar variáveis do .env
 load_dotenv()
-
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 if TELEGRAM_TOKEN is None or TELEGRAM_CHAT_ID is None:
     raise ValueError("As variáveis TELEGRAM_TOKEN e TELEGRAM_CHAT_ID devem estar definidas!")
 
+# 🔹 Arquivo para salvar hashes das páginas
 HASH_FILE = "hashes.json"
 
 def enviar_telegram(mensagem):
@@ -41,46 +43,43 @@ def monitorar():
     tz = ZoneInfo("America/Sao_Paulo")  # horário de Brasília
     hashes = carregar_hashes()
 
-    with sync_playwright() as p:
-        browser = p.firefox.launch(headless=True)
-        page = browser.new_page(ignore_https_errors=True)
+    sites = [
+        "https://www.camarasjc.sp.gov.br/a-camara/concurso-publico.php",
+        "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos/concurso-publico-012024"
+    ]
 
-        sites = [
-            "https://www.camarasjc.sp.gov.br/a-camara/concurso-publico.php",
-            "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos/concurso-publico-012024"
-        ]
+    for site in sites:
+        print(f"⏳ Verificando {site}...")
+        try:
+            r = requests.get(site, timeout=30)
+            r.raise_for_status()
+            soup = BeautifulSoup(r.text, "html.parser")
+            novo_conteudo = soup.get_text()
 
-        for site in sites:
-            print(f"⏳ Verificando {site}...")
-            try:
-                page.goto(site, wait_until="load", timeout=30000)
-                novo_conteudo = page.inner_text("body")
-
-                hash_antigo = hashes.get(site, "")
-                if hash_antigo == "":
-                    print(f"🧩 Primeiro monitoramento de {site} (hash salvo).")
-                    hashes[site] = novo_conteudo
-                    salvar_hashes(hashes)
-                elif hash_antigo != novo_conteudo:
-                    diff = list(difflib.unified_diff(
-                        hash_antigo.splitlines(),
-                        novo_conteudo.splitlines(),
-                        lineterm=""
-                    ))
-                    texto_novo = "\n".join([linha[1:] for linha in diff if linha.startswith("+") and not linha.startswith("+++")])
-                    msg = f"🆕 Atualização detectada em {site}!\n\n{texto_novo}\n\n📅 {datetime.now(tz).strftime('%d/%m/%Y %H:%M:%S')}"
-                    print(msg)
-                    enviar_telegram(msg)
-                    hashes[site] = novo_conteudo
-                    salvar_hashes(hashes)
-                else:
-                    print(f"✅ Sem mudanças em {site}.")
-            except Exception as e:
-                msg = f"🚨 Erro ao acessar {site}: {e}\n📅 {datetime.now(tz).strftime('%d/%m/%Y %H:%M:%S')}"
+            hash_antigo = hashes.get(site, "")
+            if hash_antigo == "":
+                print(f"🧩 Primeiro monitoramento de {site} (hash salvo).")
+                hashes[site] = novo_conteudo
+                salvar_hashes(hashes)
+            elif hash_antigo != novo_conteudo:
+                # Detecta mudança e envia somente o texto novo
+                diff = list(difflib.unified_diff(
+                    hash_antigo.splitlines(),
+                    novo_conteudo.splitlines(),
+                    lineterm=""
+                ))
+                texto_novo = "\n".join([linha[1:] for linha in diff if linha.startswith("+") and not linha.startswith("+++")])
+                msg = f"🆕 Atualização detectada em {site}!\n\n{texto_novo}\n\n📅 {datetime.now(tz).strftime('%d/%m/%Y %H:%M:%S')}"
                 print(msg)
                 enviar_telegram(msg)
-
-        browser.close()
+                hashes[site] = novo_conteudo
+                salvar_hashes(hashes)
+            else:
+                print(f"✅ Sem mudanças em {site}.")
+        except Exception as e:
+            msg = f"🚨 Erro ao acessar {site}: {e}\n📅 {datetime.now(tz).strftime('%d/%m/%Y %H:%M:%S')}"
+            print(msg)
+            enviar_telegram(msg)
 
 if __name__ == "__main__":
     print("🚀 Monitoramento diário iniciado!")
