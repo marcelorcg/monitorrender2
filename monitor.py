@@ -4,6 +4,8 @@ import difflib
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from dotenv import load_dotenv
 import urllib3
 
@@ -20,6 +22,15 @@ if TELEGRAM_TOKEN is None or TELEGRAM_CHAT_ID is None:
     raise ValueError("As variáveis TELEGRAM_TOKEN e TELEGRAM_CHAT_ID devem estar definidas!")
 
 HASH_FILE = "hashes.json"
+
+# 🔹 Sessão global com retry e timeout
+session = requests.Session()
+retries = Retry(total=3, backoff_factor=2, status_forcelist=[403, 500, 502, 503, 504])
+adapter = HTTPAdapter(max_retries=retries)
+session.mount("https://", adapter)
+session.mount("http://", adapter)
+
+DEFAULT_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
 def enviar_telegram(mensagem):
     """Envia mensagem pelo Telegram."""
@@ -47,20 +58,21 @@ def monitorar():
     sites = [
         {
             "url": "https://www.camarasjc.sp.gov.br/a-camara/concurso-publico.php",
-            "headers": {}  # SSL será ignorado, sem cabeçalho especial
+            "headers": DEFAULT_HEADERS
         },
         {
             "url": "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos/concurso-publico-012024",
-            "headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            "headers": DEFAULT_HEADERS
         }
     ]
 
     for site in sites:
         url = site["url"]
-        headers = site.get("headers", {})
+        headers = site.get("headers", DEFAULT_HEADERS)
         print(f"⏳ Verificando {url}...")
         try:
-            response = requests.get(url, headers=headers, verify=False, timeout=30)
+            # 🔹 Ignora verificação SSL, usa timeout e retries
+            response = session.get(url, headers=headers, verify=False, timeout=30)
             response.raise_for_status()
             novo_conteudo = response.text
 
@@ -76,7 +88,7 @@ def monitorar():
                     lineterm=""
                 ))
                 texto_novo = "\n".join([linha[1:] for linha in diff if linha.startswith("+") and not linha.startswith("+++")])
-                msg = f"🆕 Atualização detectada em {url}!\n\n{texto_novo}\n\n📅 {datetime.now(tz).strftime('%d/%m/%Y %H:%M:%S')}"
+                msg = f"🆕 Atualização detectada em {url}!\n\n{texto_novo[:2000]}\n\n📅 {datetime.now(tz).strftime('%d/%m/%Y %H:%M:%S')}"
                 print(msg)
                 enviar_telegram(msg)
                 hashes[url] = novo_conteudo
@@ -85,6 +97,10 @@ def monitorar():
                 print(f"✅ Sem mudanças em {url}.")
         except requests.exceptions.HTTPError as e:
             msg = f"🚨 Erro HTTP ao acessar {url}: {e}\n📅 {datetime.now(tz).strftime('%d/%m/%Y %H:%M:%S')}"
+            print(msg)
+            enviar_telegram(msg)
+        except requests.exceptions.SSLError as e:
+            msg = f"⚠️ Problema de SSL ao acessar {url}: {e}\n📅 {datetime.now(tz).strftime('%d/%m/%Y %H:%M:%S')}\nTentando novamente com SSL ignorado..."
             print(msg)
             enviar_telegram(msg)
         except requests.exceptions.RequestException as e:
