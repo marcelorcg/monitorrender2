@@ -1,4 +1,3 @@
 #!/bin/bash
-# 🔹 Roda o monitor
+# start.sh - inicia o monitor (não precisamos instalar Playwright)
 python monitor.py
-
