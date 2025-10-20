@@ -1,43 +1,47 @@
 import os
 import requests
-from datetime import datetime
 from bs4 import BeautifulSoup
+import time
 
-# 🔹 Configurações do Telegram
+from telegram import Bot
+from telegram.error import TelegramError
+
+# 🔹 Variáveis do Telegram
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# 🔹 URLs para monitorar
+bot = Bot(token=TELEGRAM_TOKEN)
+
+# 🔹 URLs que você quer monitorar
 URLS = [
     os.getenv("URL1"),
     os.getenv("URL2")
 ]
 
-def enviar_telegram(mensagem):
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("⚠️ Variáveis TELEGRAM não configuradas.")
-        return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": mensagem}
+# 🔹 Função para enviar mensagem
+def enviar_telegram(mensagem: str):
     try:
-        requests.post(url, data=payload)
-        print(f"📩 Mensagem enviada: {mensagem}")
-    except Exception as e:
-        print(f"❌ Erro ao enviar mensagem: {e}")
+        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=mensagem)
+        print("✅ Mensagem enviada no Telegram!")
+    except TelegramError as e:
+        print(f"⚠️ Erro ao enviar mensagem: {e}")
 
-# 🔹 Rodando o monitor
-print("🚀 Monitoramento diário iniciado!")
+# 🔹 Função para checar sites
+def checar_sites():
+    for url in URLS:
+        try:
+            res = requests.get(url, timeout=15)
+            res.raise_for_status()
+            soup = BeautifulSoup(res.text, "html.parser")
+            # Envia conteúdo resumido ou apenas aviso
+            enviar_telegram(f"Teste de monitor: site acessado com sucesso!\nURL: {url}\nConteúdo inicial:\n{soup.get_text()[:200]}...")
+        except requests.HTTPError as e:
+            enviar_telegram(f"⚠️ HTTP Error ao acessar {url}: {e}")
+        except requests.RequestException as e:
+            enviar_telegram(f"⚠️ Erro ao acessar {url}: {e}")
 
-for url in URLS:
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
-        mensagem = f"Teste do monitor: {url}\nExecutado em {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
-        enviar_telegram(mensagem)
-    except requests.HTTPError as http_err:
-        print(f"⚠️ Erro HTTP: {http_err} - {url}")
-    except Exception as e:
-        print(f"❌ Erro ao acessar {url}: {e}")
-
-print("✅ Monitoramento concluído!")
+# 🔹 Executa o monitor uma vez para teste
+if __name__ == "__main__":
+    print("🚀 Monitor de teste iniciado!")
+    checar_sites()
+    print("✅ Monitor de teste concluído!")
