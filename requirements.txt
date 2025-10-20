@@ -1,21 +1,9 @@
-# 📦 Dependências do projeto
-
-# Para acessar sites e interagir com elementos
-playwright==1.48.0
-
-# Para envio de mensagens via Telegram
 requests==2.32.3
 python-telegram-bot==13.15
-
-# Para ler variáveis do .env
 python-dotenv==1.1.0
-
-# Manipulação de datas e fusos horários
 pytz==2025.2
 tzdata==2025.1
 tzlocal==5.3.1
-
-# Utilitários e parsing
 beautifulsoup4==4.12.3
 soupsieve==2.8
 cachetools==4.2.2
