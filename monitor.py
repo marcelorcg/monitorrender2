@@ -1,100 +1,84 @@
+import os
 import requests
 from bs4 import BeautifulSoup
+from hashlib import sha256
 from datetime import datetime
-import time
-import os
-import pytz
+from time import sleep
+from dotenv import load_dotenv
+from telegram import Bot
 
-# ==========================
-# CONFIGURAÇÕES
-# ==========================
+# Carrega variáveis do .env (ou do Railway)
+load_dotenv()
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 URLS = [
     "https://www.cacapava.sp.gov.br/publicacoes",
-    "https://www.camaracacapava.sp.gov.br/diario-oficial"
+    "https://www.camarasjc.sp.gov.br/a-camara/concurso-publico.php"
 ]
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TIMEZONE = pytz.timezone("America/Sao_Paulo")
-ARQUIVO_ULTIMA_VERIFICACAO = "ultima_publicacao.txt"
 
+# Arquivo para armazenar hash anterior
+HASH_FILE = "hash_antigo.txt"
 
-# ==========================
-# FUNÇÕES PRINCIPAIS
-# ==========================
+# Inicializa bot do Telegram
+bot = Bot(token=BOT_TOKEN) if BOT_TOKEN and CHAT_ID else None
 
-def enviar_telegram(mensagem):
-    """Envia mensagem ao Telegram"""
-    if not BOT_TOKEN or not CHAT_ID:
+def get_hash(content: str) -> str:
+    return sha256(content.encode("utf-8")).hexdigest()
+
+def enviar_telegram(mensagem: str):
+    if bot:
+        bot.send_message(chat_id=CHAT_ID, text=mensagem)
+        print("✅ Mensagem enviada no Telegram!")
+    else:
         print("⚠️ Variáveis TELEGRAM não configuradas.")
-        return
 
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    data = {"chat_id": CHAT_ID, "text": mensagem}
-    try:
-        r = requests.post(url, data=data)
-        if r.status_code == 200:
-            print("📩 Mensagem enviada ao Telegram com sucesso!")
-        else:
-            print(f"❌ Erro ao enviar mensagem: {r.status_code}")
-    except Exception as e:
-        print(f"🚫 Falha ao enviar mensagem: {e}")
+def buscar_conteudo(url: str) -> str:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    }
+    r = requests.get(url, headers=headers)
+    r.raise_for_status()
+    return r.text
 
-
-def obter_ultima_publicacao(url):
-    """Obtém a última publicação da página"""
-    try:
-        resposta = requests.get(url, timeout=10)
-        resposta.raise_for_status()
-        soup = BeautifulSoup(resposta.text, "html.parser")
-        item = soup.find("a")
-        if item:
-            return item.text.strip()
-    except Exception as e:
-        print(f"⚠️ Erro ao acessar {url}: {e}")
-    return None
-
-
-def carregar_ultima_publicacao():
-    """Lê do arquivo a última publicação registrada"""
-    if os.path.exists(ARQUIVO_ULTIMA_VERIFICACAO):
-        with open(ARQUIVO_ULTIMA_VERIFICACAO, "r", encoding="utf-8") as f:
-            return f.read().strip()
-    return None
-
-
-def salvar_ultima_publicacao(titulo):
-    """Salva no arquivo a última publicação detectada"""
-    with open(ARQUIVO_ULTIMA_VERIFICACAO, "w", encoding="utf-8") as f:
-        f.write(titulo)
-
-
-def monitorar():
-    """Monitora as URLs"""
-    print("🔎 Verificando atualizações...")
-    ultima_publicacao_salva = carregar_ultima_publicacao()
-    nova_publicacao = None
-
-    for url in URLS:
-        titulo = obter_ultima_publicacao(url)
-        if titulo and titulo != ultima_publicacao_salva:
-            nova_publicacao = titulo
-            salvar_ultima_publicacao(titulo)
-            hora = datetime.now(TIMEZONE).strftime("%d/%m/%Y %H:%M")
-            enviar_telegram(f"📢 Nova publicação encontrada em {url}\n🕓 {hora}\n📰 {titulo}")
-            break
-
-    if not nova_publicacao:
-        print("⏳ Nenhuma nova publicação encontrada.")
-
-
-# ==========================
-# EXECUÇÃO PRINCIPAL
-# ==========================
-if __name__ == "__main__":
+def main():
     print("🚀 Monitoramento diário iniciado!")
 
-    # 🔹 Mensagem de teste (para verificar se o Telegram está funcionando)
-    enviar_telegram("📡 Teste: o monitor está ativo no Railway! 🚀")
+    hash_atual = ""
+    mensagens = []
 
-    monitorar()
+    for url in URLS:
+        try:
+            html = buscar_conteudo(url)
+            nova_hash = get_hash(html)
+
+            # Lê hash antigo
+            if os.path.exists(HASH_FILE):
+                with open(HASH_FILE, "r") as f:
+                    hash_antigo = f.read().strip()
+            else:
+                hash_antigo = ""
+
+            if nova_hash != hash_antigo:
+                mensagens.append(f"🧩 Mudança detectada em {url}")
+                hash_atual = nova_hash  # atualiza hash
+
+        except requests.HTTPError as e:
+            mensagens.append(f"⚠️ Erro ao acessar {url}: {e}")
+
+    # Atualiza hash
+    if hash_atual:
+        with open(HASH_FILE, "w") as f:
+            f.write(hash_atual)
+
+    # Envia notificações
+    if mensagens:
+        for msg in mensagens:
+            enviar_telegram(msg)
+    else:
+        print("⏳ Nenhuma nova publicação encontrada.")
+
     print("✅ Monitoramento concluído!")
+
+if __name__ == "__main__":
+    main()
