@@ -6,6 +6,8 @@ import telegram
 import datetime
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # 🔹 Carregar variáveis do .env
 load_dotenv()
@@ -17,7 +19,7 @@ URL2 = os.getenv("URL2")
 # 🔹 Inicializa o bot do Telegram
 bot = telegram.Bot(token=TELEGRAM_TOKEN)
 
-# 🔹 Cabeçalhos para simular um navegador real (evita erro 403)
+# 🔹 Cabeçalhos para simular navegador real
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -36,11 +38,19 @@ def enviar_mensagem(msg):
     except Exception as e:
         print(f"⚠️ Erro ao enviar mensagem: {e}")
 
+# 🔹 Sessão do requests com retries
+def criar_sessao():
+    session = requests.Session()
+    retries = Retry(total=5, backoff_factor=1, status_forcelist=[403, 500, 502, 503, 504])
+    session.mount("https://", HTTPAdapter(max_retries=retries))
+    return session
+
 # 🔹 Função para pegar HTML e gerar hash
 def obter_hash(url):
-    for tentativa in range(5):  # tenta até 5 vezes
+    session = criar_sessao()
+    for tentativa in range(5):
         try:
-            response = requests.get(url, headers=HEADERS, timeout=10, verify=False)
+            response = session.get(url, headers=HEADERS, timeout=10, verify=False)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, "html.parser")
             conteudo = soup.get_text()
@@ -53,47 +63,38 @@ def obter_hash(url):
             time.sleep(2)
     return None
 
-# 🔹 Arquivos para salvar o hash antigo
+# 🔹 Arquivos para salvar hash antigo
 HASH_CAMARA = "hash_camara.txt"
 HASH_PREFEITURA = "hash_prefeitura.txt"
 
-# 🔹 Função para comparar alterações
+# 🔹 Função para verificar alterações
 def verificar_alteracao(nome, url, arquivo_hash):
     print(f"⏳ Verificando {nome} ({url})...")
     novo_hash = obter_hash(url)
     if not novo_hash:
-        enviar_mensagem(f"⚠️ HTTP Error ao acessar {url}\n{nome}")
-        return f"{nome}: ❌ Erro ao acessar"
-
+        enviar_mensagem(f"⚠️ HTTP Error ao acessar {url}")
+        return
     if not os.path.exists(arquivo_hash):
         with open(arquivo_hash, "w") as f:
             f.write(novo_hash)
         print(f"🧩 Primeiro monitoramento de {nome} (hash salvo).")
-        return f"{nome}: 🟢 Primeiro monitoramento, hash salvo."
-
+        enviar_mensagem(f"⏳ {nome} verificado (primeiro monitoramento).")
+        return
     with open(arquivo_hash, "r") as f:
         antigo_hash = f.read()
-
     if novo_hash != antigo_hash:
         with open(arquivo_hash, "w") as f:
             f.write(novo_hash)
         enviar_mensagem(f"🚨 Mudança detectada em {nome}!\n{url}")
-        return f"{nome}: 🔴 Mudança detectada!"
     else:
-        return f"{nome}: ✅ Nenhuma mudança detectada."
+        enviar_mensagem(f"✅ Nenhuma mudança detectada em {nome}.")
 
 # 🔹 Execução principal
 if __name__ == "__main__":
     agora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    msg_inicio = (
-        f"🚀 Monitoramento diário iniciado!\n\nSites verificados:\n"
-        f"1️⃣ Câmara SJC: {URL1}\n"
-        f"2️⃣ Prefeitura Caçapava: {URL2}"
-    )
-    enviar_mensagem(msg_inicio)
+    enviar_mensagem("🚀 Monitoramento diário iniciado!\n\nSites verificados:\n1️⃣ Câmara SJC: {}\n2️⃣ Prefeitura Caçapava: {}".format(URL1, URL2))
 
-    resultado_camara = verificar_alteracao("Câmara SJC", URL1, HASH_CAMARA)
-    resultado_prefeitura = verificar_alteracao("Prefeitura Caçapava", URL2, HASH_PREFEITURA)
+    verificar_alteracao("Câmara SJC", URL1, HASH_CAMARA)
+    verificar_alteracao("Prefeitura Caçapava", URL2, HASH_PREFEITURA)
 
-    msg_final = f"\n{resultado_camara}\n{resultado_prefeitura}\n📅 {agora}\n✅ Monitoramento concluído!"
-    enviar_mensagem(msg_final)
+    enviar_mensagem(f"📅 {agora}\n✅ Monitoramento concluído!")
