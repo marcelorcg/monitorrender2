@@ -1,2 +1,18 @@
-hashes.json
+# Ignorar o arquivo de variáveis de ambiente
+.env
 
+# Ignorar pastas do Python/venv
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env.bak
+venv/
+.env.*
+
+# Ignorar arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# Ignorar arquivos de log
+*.log
