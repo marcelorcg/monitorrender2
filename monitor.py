@@ -38,7 +38,7 @@ def enviar_mensagem(msg):
 
 # 🔹 Função para pegar HTML e gerar hash
 def obter_hash(url):
-    for tentativa in range(5):  # tenta até 5 vezes
+    for tentativa in range(5):
         try:
             response = requests.get(url, headers=HEADERS, timeout=10, verify=False)
             response.raise_for_status()
