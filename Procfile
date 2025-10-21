@@ -1,1 +1,2 @@
-worker: python monitor.py
+worker: bash start.sh
+

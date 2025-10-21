@@ -1,3 +1,3 @@
 #!/bin/bash
-# start.sh - inicia o monitor (não precisamos instalar Playwright)
+echo "🚀 Iniciando monitoramento..."
 python monitor.py
