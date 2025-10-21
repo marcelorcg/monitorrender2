@@ -6,10 +6,6 @@ import telegram
 import datetime
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
-import urllib3
-
-# 🔹 Desativa avisos SSL (InsecureRequestWarning)
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # 🔹 Carregar variáveis do .env
 load_dotenv()
@@ -67,44 +63,37 @@ def verificar_alteracao(nome, url, arquivo_hash):
     novo_hash = obter_hash(url)
     if not novo_hash:
         enviar_mensagem(f"⚠️ HTTP Error ao acessar {url}\n{nome}")
-        return "erro"
-    
+        return f"{nome}: ❌ Erro ao acessar"
+
     if not os.path.exists(arquivo_hash):
         with open(arquivo_hash, "w") as f:
             f.write(novo_hash)
         print(f"🧩 Primeiro monitoramento de {nome} (hash salvo).")
-        return "primeiro"
-    
+        return f"{nome}: 🟢 Primeiro monitoramento, hash salvo."
+
     with open(arquivo_hash, "r") as f:
         antigo_hash = f.read()
-    
+
     if novo_hash != antigo_hash:
         with open(arquivo_hash, "w") as f:
             f.write(novo_hash)
         enviar_mensagem(f"🚨 Mudança detectada em {nome}!\n{url}")
-        return "modificado"
+        return f"{nome}: 🔴 Mudança detectada!"
     else:
-        print(f"✅ Nenhuma mudança detectada em {nome}.")
-        return "igual"
+        return f"{nome}: ✅ Nenhuma mudança detectada."
 
 # 🔹 Execução principal
 if __name__ == "__main__":
     agora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    
-    # Mensagem inicial informando que o monitoramento iniciou
-    mensagem_inicio = (
-        f"🚀 Monitoramento diário iniciado!\n\n"
-        f"Sites verificados:\n"
+    msg_inicio = (
+        f"🚀 Monitoramento diário iniciado!\n\nSites verificados:\n"
         f"1️⃣ Câmara SJC: {URL1}\n"
         f"2️⃣ Prefeitura Caçapava: {URL2}"
     )
-    enviar_mensagem(mensagem_inicio)
+    enviar_mensagem(msg_inicio)
 
-    # Verifica cada site
-    status_camara = verificar_alteracao("Câmara SJC", URL1, HASH_CAMARA)
-    status_prefeitura = verificar_alteracao("Prefeitura Caçapava", URL2, HASH_PREFEITURA)
+    resultado_camara = verificar_alteracao("Câmara SJC", URL1, HASH_CAMARA)
+    resultado_prefeitura = verificar_alteracao("Prefeitura Caçapava", URL2, HASH_PREFEITURA)
 
-    # Mensagem final de resumo
-    resumo = f"📅 {agora}\n✅ Monitoramento concluído!\n"
-    resumo += f"Câmara SJC: {status_camara}\nPrefeitura Caçapava: {status_prefeitura}"
-    enviar_mensagem(resumo)
+    msg_final = f"\n{resultado_camara}\n{resultado_prefeitura}\n📅 {agora}\n✅ Monitoramento concluído!"
+    enviar_mensagem(msg_final)
