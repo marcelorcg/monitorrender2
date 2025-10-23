@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# monitor.py
+# monitor.py – versão final: monitor diário às 9h com função corrigida
 
 import os
 import json
@@ -20,23 +20,23 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 URL1 = os.getenv("URL1")
 URL2 = os.getenv("URL2")
 
-# ---- verificação inicial ----
-if not TELEGRAM_TOKEN:
-    print("❌ ERRO: Variável TELEGRAM_TOKEN não definida!")
-if not TELEGRAM_CHAT_ID:
-    print("❌ ERRO: Variável TELEGRAM_CHAT_ID não definida!")
-if not URL1 or not URL2:
-    print("⚠️ Aviso: URLs não configuradas corretamente no .env")
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/128.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "pt-BR,pt;q=0.9",
+    "Referer": "https://www.google.com/",
+}
 
 HASH_FILE = "hashes.json"
 
-# ---- utilitários ----
+# ---- funções ----
 def enviar_telegram(texto: str):
-    """Envia mensagem ao Telegram com verificação de erros"""
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("⚠️ Telegram não configurado corretamente. Mensagem não enviada.")
+        print("⚠️ Telegram não configurado. Mensagem não enviada.")
         return
-
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     data = {"chat_id": TELEGRAM_CHAT_ID, "text": texto}
     try:
@@ -44,7 +44,7 @@ def enviar_telegram(texto: str):
         if resp.status_code == 200:
             print("✅ Mensagem enviada no Telegram!")
         else:
-            print(f"⚠️ Erro ao enviar mensagem (HTTP {resp.status_code}): {resp.text}")
+            print(f"⚠️ Erro Telegram (HTTP {resp.status_code}): {resp.text}")
     except Exception as e:
         print(f"⚠️ Erro ao enviar Telegram: {e}")
 
@@ -62,40 +62,30 @@ def salvar_hashes(hashes):
         json.dump(hashes, f, ensure_ascii=False, indent=2)
 
 def obter_conteudo(url):
-    """
-    Obtém o HTML/texto do site.
-    Retorna exatamente dois valores:
-    - conteúdo (str) ou None se erro
-    - erro (str) ou None se sucesso
-    """
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/128.0.0.0 Safari/537.36"
-        ),
-        "Accept-Language": "pt-BR,pt;q=0.9",
-        "Referer": "https://www.google.com/",
-    }
+    """Retorna sempre (conteudo, via_fallback, erro)"""
     try:
-        resposta = requests.get(url, headers=headers, timeout=20, verify=False)
-        resposta.raise_for_status()
-        return resposta.text, None
-    except requests.exceptions.RequestException as e:
-        return None, str(e)
+        r = requests.get(url, headers=HEADERS, timeout=15, verify=False)
+        r.raise_for_status()
+        return r.text, False, None
+    except requests.exceptions.RequestException:
+        try:
+            proxy_url = "https://r.jina.ai/http://" + url.replace("https://", "").replace("http://", "")
+            r2 = requests.get(proxy_url, headers=HEADERS, timeout=15)
+            r2.raise_for_status()
+            return r2.text, True, None
+        except Exception as e2:
+            return None, False, str(e2)
 
 def gerar_hash_texto(texto):
     return hashlib.sha256(texto.encode("utf-8")).hexdigest()
 
-# ---- monitoramento ----
 def verificar_site(nome, url, hashes):
     tz = ZoneInfo("America/Sao_Paulo")
     agora = datetime.now(tz).strftime("%d/%m/%Y %H:%M:%S")
-    print(f"🌐 Verificando {nome} → {url}")
-    conteudo, erro = obter_conteudo(url)
-
+    print(f"⏳ Verificando {nome} ({url})...")
+    conteudo, via_fallback, erro = obter_conteudo(url)
     if erro:
-        msg = f"❌ Erro ao verificar {nome}: {erro}"
+        msg = f"❌ Erro ao verificar {nome}: {erro}\n📅 {agora}"
         print(msg)
         enviar_telegram(msg)
         return hashes
@@ -103,12 +93,13 @@ def verificar_site(nome, url, hashes):
     soup = BeautifulSoup(conteudo, "html.parser")
     texto_visivel = soup.get_text(separator="\n", strip=True)
     novo_hash = gerar_hash_texto(texto_visivel)
-
     antigo_hash = hashes.get(url)
+
     if antigo_hash is None:
         hashes[url] = novo_hash
         salvar_hashes(hashes)
-        msg = f"🧩 Primeiro monitoramento de {nome} ({url}) — hash salvo.\n📅 {agora}"
+        fonte = " (via fallback)" if via_fallback else ""
+        msg = f"🧩 Primeiro monitoramento de {nome}{fonte} — hash salvo.\n📅 {agora}"
         print(msg)
         enviar_telegram(msg)
         return hashes
@@ -116,12 +107,15 @@ def verificar_site(nome, url, hashes):
     if novo_hash != antigo_hash:
         hashes[url] = novo_hash
         salvar_hashes(hashes)
-        msg = f"🚨 Mudança detectada em {nome}!\n{url}\n📅 {agora}"
+        fonte = " (via fallback)" if via_fallback else ""
+        msg = f"🚨 Mudança detectada em {nome}{fonte}!\n{url}\n📅 {agora}"
         print(msg)
         enviar_telegram(msg)
     else:
-        msg = f"✅ {nome} não apresentou mudanças.\n📅 {agora}"
+        fonte = " (via fallback)" if via_fallback else ""
+        msg = f"✅ {nome} não apresentou mudanças{fonte}.\n📅 {agora}"
         print(msg)
+
     return hashes
 
 # ---- principal ----
