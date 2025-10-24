@@ -6,10 +6,6 @@ from dotenv import load_dotenv
 from telegram import Bot
 from datetime import datetime
 import pytz
-import urllib3
-
-# 🚫 Desativa avisos de certificado SSL inseguros
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # 🧭 Carregar variáveis de ambiente
 load_dotenv()
@@ -34,15 +30,19 @@ def enviar(msg):
 
 # 🌐 Função para obter conteúdo HTML
 def obter_conteudo(url):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/118.0.0.0 Safari/537.36"
+    }
     try:
-        # Primeiro tenta com verificação SSL
-        resp = requests.get(url, timeout=20, verify=True)
+        resp = requests.get(url, timeout=20, verify=True, headers=headers)
         resp.raise_for_status()
         return resp.text, None
     except requests.exceptions.SSLError:
-        # Se der erro de SSL, tenta sem verificar
+        # ⚠️ Caso o site tenha erro de certificado SSL, tenta novamente sem verificar
         try:
-            resp = requests.get(url, timeout=20, verify=False)
+            resp = requests.get(url, timeout=20, verify=False, headers=headers)
             resp.raise_for_status()
             return resp.text, None
         except Exception as e:
@@ -81,9 +81,7 @@ def verificar_site(nome, url, hashes):
 def main():
     enviar(f"🤖 Monitor ativo e pronto — sem erros SSL.\n"
            f"🚀 Iniciando monitoramento diário dos sites de concursos...\n\n"
-           f"1️⃣ Câmara SJC: {URL1}\n"
-           f"2️⃣ Prefeitura Caçapava: {URL2}\n\n"
-           f"📅 {agora()}")
+           f"1️⃣ Câmara SJC: {URL1}\n2️⃣ Prefeitura Caçapava: {URL2}\n\n📅 {agora()}")
 
     hashes = {}
 
@@ -91,7 +89,8 @@ def main():
     hashes, _ = verificar_site("Câmara SJC", URL1, hashes)
     hashes, _ = verificar_site("Prefeitura Caçapava", URL2, hashes)
 
-    enviar(f"✅ Monitoramento concluído!\n📅 {agora()}")
+    enviar(f"✅ Monitoramento concluído!\n📅 {agora()}\n"
+           f"📡 Sistema finalizado com sucesso — aguardando próxima execução.")
 
 if __name__ == "__main__":
     try:
