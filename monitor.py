@@ -6,6 +6,10 @@ from dotenv import load_dotenv
 from telegram import Bot
 from datetime import datetime
 import pytz
+import urllib3
+
+# 🧩 Desativa aviso de SSL
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # 🧭 Carrega variáveis de ambiente
 load_dotenv()
@@ -28,20 +32,24 @@ def enviar(msg):
     except Exception as e:
         print(f"Erro ao enviar mensagem: {e}")
 
-# 🌐 Obtém o conteúdo HTML do site
+# 🌐 Obtém o conteúdo HTML do site (modo síncrono estável)
 def obter_conteudo(url):
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/123.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Referer": "https://www.google.com/",
+        "Connection": "close"
+    }
     try:
-        resp = requests.get(url, timeout=20, verify=True)
+        resp = requests.get(url, headers=headers, timeout=30, verify=False)
+        if resp.status_code == 403:
+            return None, "bloqueado (403 Forbidden)"
         resp.raise_for_status()
         return resp.text, None
-    except requests.exceptions.SSLError:
-        # ⚠️ Caso o SSL falhe, tenta sem verificação
-        try:
-            resp = requests.get(url, timeout=20, verify=False)
-            resp.raise_for_status()
-            return resp.text, None
-        except Exception as e:
-            return None, f"Erro SSL ignorado: {e}"
     except Exception as e:
         return None, str(e)
 
@@ -71,8 +79,13 @@ def verificar_site(nome, url, hashes):
 
 # 🚀 Função principal
 def main():
-    enviar(f"🤖 Monitor ativo e pronto — sem erros SSL.\n🚀 Iniciando monitoramento diário dos sites de concursos...\n\n"
-           f"1️⃣ Câmara SJC: {URL1}\n2️⃣ Prefeitura Caçapava: {URL2}\n\n📅 {agora()}")
+    enviar(
+        f"🤖 Monitor ativo e pronto — sem erros SSL.\n"
+        f"🚀 Iniciando monitoramento diário dos sites de concursos...\n\n"
+        f"1️⃣ Câmara SJC: {URL1}\n"
+        f"2️⃣ Prefeitura Caçapava: {URL2}\n\n"
+        f"📅 {agora()}"
+    )
 
     hashes = {}
     hashes = verificar_site("Câmara SJC", URL1, hashes)
