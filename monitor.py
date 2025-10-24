@@ -6,6 +6,10 @@ from dotenv import load_dotenv
 from telegram import Bot
 from datetime import datetime
 import pytz
+import urllib3
+
+# 🚫 Desativa avisos de certificado SSL inseguros
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # 🧭 Carregar variáveis de ambiente
 load_dotenv()
@@ -31,11 +35,12 @@ def enviar(msg):
 # 🌐 Função para obter conteúdo HTML
 def obter_conteudo(url):
     try:
+        # Primeiro tenta com verificação SSL
         resp = requests.get(url, timeout=20, verify=True)
         resp.raise_for_status()
         return resp.text, None
     except requests.exceptions.SSLError:
-        # ⚠️ Caso o site tenha erro de certificado SSL, tenta novamente sem verificar
+        # Se der erro de SSL, tenta sem verificar
         try:
             resp = requests.get(url, timeout=20, verify=False)
             resp.raise_for_status()
@@ -74,8 +79,11 @@ def verificar_site(nome, url, hashes):
 
 # 🚀 Execução principal
 def main():
-    enviar(f"🚀 Iniciando monitoramento diário dos sites de concursos...\n\n"
-           f"1️⃣ Câmara SJC: {URL1}\n2️⃣ Prefeitura Caçapava: {URL2}\n\n📅 {agora()}")
+    enviar(f"🤖 Monitor ativo e pronto — sem erros SSL.\n"
+           f"🚀 Iniciando monitoramento diário dos sites de concursos...\n\n"
+           f"1️⃣ Câmara SJC: {URL1}\n"
+           f"2️⃣ Prefeitura Caçapava: {URL2}\n\n"
+           f"📅 {agora()}")
 
     hashes = {}
 
