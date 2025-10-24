@@ -7,7 +7,7 @@ from telegram import Bot
 from datetime import datetime
 import pytz
 
-# 🧭 Carregar variáveis de ambiente
+# 🧭 Carrega variáveis de ambiente
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -16,81 +16,69 @@ URL2 = os.getenv("URL2")
 
 bot = Bot(token=TELEGRAM_TOKEN)
 
-# 🕓 Função para obter horário local (Brasil)
+# 🕓 Retorna horário atual no Brasil
 def agora():
     tz = pytz.timezone("America/Sao_Paulo")
     return datetime.now(tz).strftime("%d/%m/%Y %H:%M:%S")
 
-# 📩 Função para enviar mensagem ao Telegram
+# 📩 Envia mensagem ao Telegram
 def enviar(msg):
     try:
         bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg)
     except Exception as e:
         print(f"Erro ao enviar mensagem: {e}")
 
-# 🌐 Função para obter conteúdo HTML
+# 🌐 Obtém o conteúdo HTML do site
 def obter_conteudo(url):
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/118.0.0.0 Safari/537.36"
-    }
     try:
-        resp = requests.get(url, timeout=20, verify=True, headers=headers)
+        resp = requests.get(url, timeout=20, verify=True)
         resp.raise_for_status()
         return resp.text, None
     except requests.exceptions.SSLError:
-        # ⚠️ Caso o site tenha erro de certificado SSL, tenta novamente sem verificar
+        # ⚠️ Caso o SSL falhe, tenta sem verificação
         try:
-            resp = requests.get(url, timeout=20, verify=False, headers=headers)
+            resp = requests.get(url, timeout=20, verify=False)
             resp.raise_for_status()
             return resp.text, None
         except Exception as e:
-            return None, f"SSL Error ignorado: {e}"
+            return None, f"Erro SSL ignorado: {e}"
     except Exception as e:
         return None, str(e)
 
-# 🔍 Função para gerar hash do conteúdo HTML
+# 🔍 Gera hash do conteúdo
 def gerar_hash(conteudo):
     return hashlib.sha256(conteudo.encode("utf-8")).hexdigest()
 
-# 🧠 Função principal de verificação
+# 🧠 Verifica se o site mudou
 def verificar_site(nome, url, hashes):
     conteudo, erro = obter_conteudo(url)
 
     if erro:
         enviar(f"⚠️ {nome} inacessível ({erro}), monitoramento ignorado hoje.")
-        return hashes, None
+        return hashes
 
-    # Extrai texto puro para comparar alterações reais
     soup = BeautifulSoup(conteudo, "html.parser")
     texto = soup.get_text()
     hash_atual = gerar_hash(texto)
 
     if nome not in hashes:
         hashes[nome] = hash_atual
-        return hashes, None
-
-    if hash_atual != hashes[nome]:
+    elif hash_atual != hashes[nome]:
         enviar(f"🚨 Mudança detectada em {nome}!\n{url}\n📅 {agora()}")
         hashes[nome] = hash_atual
 
-    return hashes, None
+    return hashes
 
-# 🚀 Execução principal
+# 🚀 Função principal
 def main():
-    enviar(f"🤖 Monitor ativo e pronto — sem erros SSL.\n"
-           f"🚀 Iniciando monitoramento diário dos sites de concursos...\n\n"
+    enviar(f"🤖 Monitor ativo e pronto — sem erros SSL.\n🚀 Iniciando monitoramento diário dos sites de concursos...\n\n"
            f"1️⃣ Câmara SJC: {URL1}\n2️⃣ Prefeitura Caçapava: {URL2}\n\n📅 {agora()}")
 
     hashes = {}
+    hashes = verificar_site("Câmara SJC", URL1, hashes)
+    hashes = verificar_site("Prefeitura Caçapava", URL2, hashes)
 
-    # Verificar cada site
-    hashes, _ = verificar_site("Câmara SJC", URL1, hashes)
-    hashes, _ = verificar_site("Prefeitura Caçapava", URL2, hashes)
-
-    enviar(f"✅ Monitoramento concluído!\n📅 {agora()}\n"
-           f"📡 Sistema finalizado com sucesso — aguardando próxima execução.")
+    enviar(f"✅ Monitoramento concluído!\n📅 {agora()}")
 
 if __name__ == "__main__":
     try:
