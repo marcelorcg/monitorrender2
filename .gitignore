@@ -16,3 +16,6 @@ Thumbs.db
 
 # Ignorar arquivos de log
 *.log
+# Ignorar o arquivo de variáveis de ambiente
+.env
+hashes.json
