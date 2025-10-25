@@ -12,11 +12,10 @@ import json
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-URL1 = os.getenv("URL1")
-URL2 = os.getenv("URL2")
 
 bot = Bot(token=TELEGRAM_TOKEN)
 HASH_FILE = "hashes.json"
+SITES_FILE = "sites.txt"  # Novo arquivo com as URLs
 
 # 🕓 Função para horário local (Brasil)
 def agora():
@@ -87,16 +86,34 @@ def verificar_site(nome, url, hashes):
 
     return hashes
 
+# 📄 Lê os sites do arquivo sites.txt
+def carregar_sites():
+    if not os.path.exists(SITES_FILE):
+        enviar("⚠️ Nenhum arquivo sites.txt encontrado no projeto!")
+        return []
+
+    with open(SITES_FILE, "r", encoding="utf-8") as f:
+        linhas = [linha.strip() for linha in f.readlines() if linha.strip()]
+    return linhas
+
 # 🚀 Função principal
 def main():
+    sites = carregar_sites()
+    if not sites:
+        enviar("⚠️ Nenhum site encontrado no arquivo sites.txt.")
+        return
+
+    lista_sites = "\n".join([f"{i+1}️⃣ {url}" for i, url in enumerate(sites)])
     enviar(f"🤖 Monitor ativo e pronto — sem erros SSL.\n🚀 Iniciando monitoramento diário dos sites de concursos...\n\n"
-           f"1️⃣ Câmara SJC: {URL1}\n2️⃣ Prefeitura Caçapava: {URL2}\n\n📅 {agora()}")
+           f"{lista_sites}\n\n📅 {agora()}")
 
     hashes = carregar_hashes()
-    hashes = verificar_site("Câmara SJC", URL1, hashes)
-    hashes = verificar_site("Prefeitura Caçapava", URL2, hashes)
-    salvar_hashes(hashes)
 
+    for i, url in enumerate(sites):
+        nome = f"Site {i+1}"
+        hashes = verificar_site(nome, url, hashes)
+
+    salvar_hashes(hashes)
     enviar(f"✅ Monitoramento concluído!\n📅 {agora()}")
 
 if __name__ == "__main__":
