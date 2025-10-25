@@ -1,85 +1,84 @@
 import os
 import requests
-import hashlib
-import time
+from hashlib import sha256
 from datetime import datetime
-from requests.exceptions import RequestException
+from dotenv import load_dotenv
+from telegram import Bot
+from bs4 import BeautifulSoup
 
-# 🔑 Variáveis de ambiente (Railway)
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+# Carrega variáveis do .env
+load_dotenv()
 
-# 🌎 Sites monitorados
-SITES = [
-    "https://www.camarasjc.sp.gov.br/a-camara/concurso-publico.php",
-    "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos/concurso-publico-012024"
+BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+URLS = [
+    "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos/concurso-publico-012024",
+    "https://www.camarasjc.sp.gov.br/a-camara/concurso-publico.php"
 ]
 
-INTERVALO_MINUTOS = 60  # intervalo entre verificações
+HASH_FILE = "hashes.json"
 
-# 📤 Envio para Telegram
-def enviar_telegram(mensagem):
-    try:
-        if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-            print("⚠️ Token ou Chat ID não configurados.")
-            return
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        data = {"chat_id": TELEGRAM_CHAT_ID, "text": mensagem, "parse_mode": "HTML"}
-        r = requests.post(url, data=data, timeout=10)
-        r.raise_for_status()
-        print(f"✅ Telegram: {mensagem[:70]}...")
-    except Exception as e:
-        print(f"⚠️ Erro ao enviar mensagem: {e}")
+import json
 
-# 🔍 Baixa o conteúdo do site
-def baixar_conteudo(url):
-    try:
-        print(f"🌐 Acessando {url}")
-        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
-        r.raise_for_status()
-        return r.text
-    except Exception as e1:
-        print(f"⚠️ Erro primário ({url}): {e1} — tentando ignorar SSL...")
-        try:
-            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20, verify=False)
-            r.raise_for_status()
-            return r.text
-        except Exception as e2:
-            print(f"🚫 Falha total ({url}): {e2}")
-            return None
+# Inicializa bot do Telegram
+bot = Bot(token=BOT_TOKEN) if BOT_TOKEN and CHAT_ID else None
 
-# 🔐 Gera hash para detectar alterações
-def gerar_hash(texto):
-    return hashlib.sha256(texto.encode("utf-8")).hexdigest()
+def get_hash(content: str) -> str:
+    return sha256(content.encode("utf-8")).hexdigest()
 
-# 🧠 Monitor principal (modo síncrono)
-def monitorar():
+def enviar_telegram(mensagem: str):
+    if bot:
+        bot.send_message(chat_id=CHAT_ID, text=mensagem)
+        print("✅ Mensagem enviada no Telegram!")
+    else:
+        print("⚠️ Variáveis TELEGRAM não configuradas.")
+
+def buscar_conteudo(url: str) -> str:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    }
+    r = requests.get(url, headers=headers, verify=False)  # Ignora SSL
+    r.raise_for_status()
+    return r.text
+
+def main():
     print(f"🚀 Monitoramento iniciado em {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
-    estados = {}
+    
+    # Lê hashes antigos
+    if os.path.exists(HASH_FILE):
+        with open(HASH_FILE, "r") as f:
+            hash_antigos = json.load(f)
+    else:
+        hash_antigos = {}
 
-    while True:
-        for site in SITES:
-            conteudo = baixar_conteudo(site)
+    hash_novos = {}
+    mensagens = []
 
-            if not conteudo:
-                enviar_telegram(f"⚠️ Site inacessível: {site}")
-                continue
+    for url in URLS:
+        try:
+            html = buscar_conteudo(url)
+            nova_hash = get_hash(html)
+            hash_novos[url] = nova_hash
 
-            hash_novo = gerar_hash(conteudo)
-            hash_antigo = estados.get(site)
-
-            if hash_antigo and hash_novo != hash_antigo:
-                msg = f"🚨 Mudança detectada em {site}!\n📅 {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
-                enviar_telegram(msg)
+            if url not in hash_antigos or hash_antigos[url] != nova_hash:
+                mensagens.append(f"🚨 Mudança detectada em {url}!\n📅 {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
             else:
-                print(f"✅ Nenhuma mudança: {site}")
+                print(f"✅ Nenhuma mudança: {url}")
 
-            estados[site] = hash_novo
+        except requests.HTTPError as e:
+            mensagens.append(f"⚠️ Site inacessível: {url} ({e})")
+        except Exception as e:
+            mensagens.append(f"⚠️ Erro desconhecido: {url} ({e})")
 
-        print(f"✅ Ciclo concluído em {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
-        print(f"⏳ Aguardando {INTERVALO_MINUTOS} minutos...\n")
-        time.sleep(INTERVALO_MINUTOS * 60)
+    # Atualiza arquivo de hashes
+    with open(HASH_FILE, "w") as f:
+        json.dump(hash_novos, f, indent=4)
+
+    # Envia notificações
+    for msg in mensagens:
+        enviar_telegram(msg)
+
+    print(f"✅ Monitoramento concluído em {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
 
 if __name__ == "__main__":
-    print("🚀 Iniciando monitoramento diário 24h (modo síncrono confiável)...")
-    monitorar()
+    main()
