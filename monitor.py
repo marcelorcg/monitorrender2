@@ -5,87 +5,81 @@ import time
 from datetime import datetime
 from requests.exceptions import RequestException
 
-# 🧠 Configurações
+# 🔑 Variáveis de ambiente (Railway)
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
+# 🌎 Sites monitorados
 SITES = [
     "https://www.camarasjc.sp.gov.br/a-camara/concurso-publico.php",
     "https://www.cacapava.sp.gov.br/publicacoes/concursos-publicos/concurso-publico-012024"
 ]
 
-INTERVALO_MINUTOS = 60  # ⏳ tempo entre verificações (60 = 1 hora)
+INTERVALO_MINUTOS = 60  # intervalo entre verificações
 
-# 🧰 Função para enviar mensagem ao Telegram
+# 📤 Envio para Telegram
 def enviar_telegram(mensagem):
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("⚠️ Token ou Chat ID não configurados.")
-        return
     try:
+        if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+            print("⚠️ Token ou Chat ID não configurados.")
+            return
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         data = {"chat_id": TELEGRAM_CHAT_ID, "text": mensagem, "parse_mode": "HTML"}
-        requests.post(url, data=data, timeout=10)
-        print(f"✅ Telegram: {mensagem[:80]}...")
+        r = requests.post(url, data=data, timeout=10)
+        r.raise_for_status()
+        print(f"✅ Telegram: {mensagem[:70]}...")
     except Exception as e:
-        print(f"⚠️ Erro ao enviar Telegram: {e}")
+        print(f"⚠️ Erro ao enviar mensagem: {e}")
 
-# 🔍 Função para verificar o conteúdo de cada site
-def verificar_site(url):
+# 🔍 Baixa o conteúdo do site
+def baixar_conteudo(url):
     try:
-        response = requests.get(
-            url,
-            timeout=20,
-            verify=False,  # Ignora SSL inválido
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        )
+        print(f"🌐 Acessando {url}")
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+        r.raise_for_status()
+        return r.text
+    except Exception as e1:
+        print(f"⚠️ Erro primário ({url}): {e1} — tentando ignorar SSL...")
+        try:
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20, verify=False)
+            r.raise_for_status()
+            return r.text
+        except Exception as e2:
+            print(f"🚫 Falha total ({url}): {e2}")
+            return None
 
-        # Trata o erro 403 como site acessível
-        if response.status_code == 403:
-            print(f"🔒 Acesso restrito, mas site online: {url}")
-            return True, response.text
+# 🔐 Gera hash para detectar alterações
+def gerar_hash(texto):
+    return hashlib.sha256(texto.encode("utf-8")).hexdigest()
 
-        response.raise_for_status()
-        return True, response.text
-
-    except RequestException as e:
-        print(f"⚠️ Erro ao acessar {url}: {e}")
-        return False, str(e)
-
-# 💾 Gera um hash do conteúdo (para detectar mudanças)
-def gerar_hash(conteudo):
-    return hashlib.sha256(conteudo.encode("utf-8")).hexdigest()
-
-# 🚨 Função principal do monitoramento
-def monitorar_sites():
+# 🧠 Monitor principal (modo síncrono)
+def monitorar():
     print(f"🚀 Monitoramento iniciado em {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
-    estados_anteriores = {}
+    estados = {}
 
     while True:
         for site in SITES:
-            ok, conteudo = verificar_site(site)
+            conteudo = baixar_conteudo(site)
 
-            if not ok:
-                # Ignora falhas temporárias e não envia alerta
+            if not conteudo:
+                enviar_telegram(f"⚠️ Site inacessível: {site}")
                 continue
 
-            hash_atual = gerar_hash(conteudo)
-            hash_antigo = estados_anteriores.get(site)
+            hash_novo = gerar_hash(conteudo)
+            hash_antigo = estados.get(site)
 
-            if hash_antigo and hash_atual != hash_antigo:
-                mensagem = (
-                    f"🚨 Mudança detectada em {site}!\n"
-                    f"📅 {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n{site}"
-                )
-                enviar_telegram(mensagem)
+            if hash_antigo and hash_novo != hash_antigo:
+                msg = f"🚨 Mudança detectada em {site}!\n📅 {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+                enviar_telegram(msg)
             else:
-                print(f"✅ Sem mudanças: {site}")
+                print(f"✅ Nenhuma mudança: {site}")
 
-            estados_anteriores[site] = hash_atual
+            estados[site] = hash_novo
 
-        print(f"✅ Monitoramento concluído em {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+        print(f"✅ Ciclo concluído em {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
         print(f"⏳ Aguardando {INTERVALO_MINUTOS} minutos...\n")
         time.sleep(INTERVALO_MINUTOS * 60)
 
 if __name__ == "__main__":
-    print("🚀 Iniciando monitoramento diário 24h...")
-    monitorar_sites()
+    print("🚀 Iniciando monitoramento diário 24h (modo síncrono confiável)...")
+    monitorar()
