@@ -3,6 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 from hashlib import sha256
 from datetime import datetime
+from time import sleep
 from dotenv import load_dotenv
 from telegram import Bot
 import json
@@ -13,7 +14,7 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# 🔹 Checagem das variáveis do .env
+# 🔹 Verifica variáveis
 if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
     print("⚠️ Problema com variáveis do .env:")
     if not TELEGRAM_TOKEN:
@@ -31,8 +32,8 @@ SITES_FILE = "sites.txt"
 
 # 🕓 Função para horário local (Brasil)
 def agora():
-    from pytz import timezone
-    tz = timezone("America/Sao_Paulo")
+    import pytz
+    tz = pytz.timezone("America/Sao_Paulo")
     return datetime.now(tz).strftime("%d/%m/%Y %H:%M:%S")
 
 # 💾 Lê e grava hashes
@@ -62,13 +63,14 @@ def carregar_sites():
     with open(SITES_FILE, "r", encoding="utf-8") as f:
         return [linha.strip() for linha in f if linha.strip()]
 
-# 🌐 Busca conteúdo do site (SSL ignorado)
+# 🌐 Busca conteúdo do site (SSL ignorado e user-agent humanizado)
 def buscar_conteudo(url):
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0",
+        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
     }
     try:
-        # 🔹 Ignora SSL para evitar erro CERTIFICATE_VERIFY_FAILED
         r = requests.get(url, headers=headers, timeout=20, verify=False)
         r.raise_for_status()
         return r.text, None
@@ -100,8 +102,10 @@ def main():
     sites = carregar_sites()
     hashes = carregar_hashes()
 
+    # 🔹 Modo síncrono: verifica site por site, com delay
     for url in sites:
         hashes = verificar_site(url, hashes)
+        sleep(3)  # ⏳ delay de 3 segundos entre sites para parecer humano
 
     salvar_hashes(hashes)
     print(f"✅ Monitoramento concluído em {agora()}")
