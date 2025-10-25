@@ -1,124 +1,133 @@
 import os
-import hashlib
 import requests
 from bs4 import BeautifulSoup
+from hashlib import sha256
+from datetime import datetime
+from time import sleep
 from dotenv import load_dotenv
 from telegram import Bot
-from datetime import datetime
-import pytz
 import json
+from urllib.parse import urlparse, urlunparse
 
-# 🧭 Carrega variáveis de ambiente
+# 🧭 Carrega variáveis do .env ou Railway
 load_dotenv()
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
-bot = Bot(token=TELEGRAM_TOKEN)
+bot = Bot(token=BOT_TOKEN) if BOT_TOKEN and CHAT_ID else None
+
+# Arquivos
 HASH_FILE = "hashes.json"
-SITES_FILE = "sites.txt"  # Novo arquivo com as URLs
+SITES_FILE = "sites.txt"
 
-# 🕓 Função para horário local (Brasil)
+# ⏰ Função de horário Brasil
 def agora():
-    tz = pytz.timezone("America/Sao_Paulo")
+    from pytz import timezone
+    from datetime import datetime
+    tz = timezone("America/Sao_Paulo")
     return datetime.now(tz).strftime("%d/%m/%Y %H:%M:%S")
 
-# 📩 Envia mensagem ao Telegram
-def enviar(msg):
-    try:
-        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=msg)
-    except Exception as e:
-        print(f"Erro ao enviar mensagem: {e}")
+# 🧩 Gera hash do conteúdo
+def get_hash(content: str) -> str:
+    return sha256(content.encode("utf-8")).hexdigest()
 
-# 💾 Lê e grava hashes (para lembrar estado anterior)
+# 📩 Envia mensagem ao Telegram
+def enviar_telegram(mensagem: str):
+    if bot:
+        bot.send_message(chat_id=CHAT_ID, text=mensagem)
+        print("✅ Mensagem enviada no Telegram!")
+    else:
+        print("⚠️ Variáveis TELEGRAM não configuradas.")
+
+# 🌐 Função humanizada para obter conteúdo
+def buscar_conteudo(url: str) -> str:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0 Safari/537.36",
+        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Connection": "keep-alive"
+    }
+    session = requests.Session()
+    # Referer raiz
+    parsed = urlparse(url)
+    root = urlunparse((parsed.scheme, parsed.netloc, "/", "", "", ""))
+    headers["Referer"] = root
+
+    # Tentativa principal
+    try:
+        resp = session.get(url, headers=headers, timeout=20)
+        resp.raise_for_status()
+        return resp.text
+    except requests.HTTPError as e:
+        if e.response.status_code == 403:
+            # 🕓 Pausa e tenta novamente
+            sleep(1.2)
+            session.get(root, headers=headers, timeout=15)  # pega cookies
+            sleep(0.5)
+            resp2 = session.get(url, headers=headers, timeout=20)
+            resp2.raise_for_status()
+            return resp2.text
+        else:
+            raise
+    except requests.RequestException as e:
+        raise
+
+# 💾 Carrega hashes existentes
 def carregar_hashes():
     if os.path.exists(HASH_FILE):
         with open(HASH_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
 
+# 💾 Salva hashes atualizados
 def salvar_hashes(hashes):
     with open(HASH_FILE, "w", encoding="utf-8") as f:
         json.dump(hashes, f, indent=2, ensure_ascii=False)
 
-# 🌐 Obtém conteúdo HTML (com cabeçalho de navegador)
-def obter_conteudo(url):
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/119.0 Safari/537.36"
-        ),
-        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
-    }
-
-    try:
-        resp = requests.get(url, timeout=20, verify=True, headers=headers)
-        resp.raise_for_status()
-        return resp.text, None
-    except requests.exceptions.SSLError:
-        resp = requests.get(url, timeout=20, verify=False, headers=headers)
-        resp.raise_for_status()
-        return resp.text, None
-    except requests.exceptions.RequestException as e:
-        return None, str(e)
-
-# 🔍 Gera hash do conteúdo textual
-def gerar_hash(conteudo):
-    return hashlib.sha256(conteudo.encode("utf-8")).hexdigest()
-
-# 🧠 Verifica se o site mudou
-def verificar_site(nome, url, hashes):
-    conteudo, erro = obter_conteudo(url)
-
-    if erro:
-        enviar(f"⚠️ {nome} inacessível ({erro}), monitoramento ignorado hoje.")
-        return hashes
-
-    soup = BeautifulSoup(conteudo, "html.parser")
-    texto = soup.get_text()
-    hash_atual = gerar_hash(texto)
-
-    if url not in hashes:
-        hashes[url] = hash_atual
-    elif hash_atual != hashes[url]:
-        enviar(f"🚨 Mudança detectada em {nome}!\n{url}\n📅 {agora()}")
-        hashes[url] = hash_atual
-
-    return hashes
-
-# 📄 Lê os sites do arquivo sites.txt
+# 📄 Carrega sites do arquivo sites.txt
 def carregar_sites():
     if not os.path.exists(SITES_FILE):
-        enviar("⚠️ Nenhum arquivo sites.txt encontrado no projeto!")
+        enviar_telegram("⚠️ Nenhum arquivo sites.txt encontrado!")
         return []
-
     with open(SITES_FILE, "r", encoding="utf-8") as f:
-        linhas = [linha.strip() for linha in f.readlines() if linha.strip()]
-    return linhas
+        return [linha.strip() for linha in f.readlines() if linha.strip()]
 
 # 🚀 Função principal
 def main():
     sites = carregar_sites()
     if not sites:
-        enviar("⚠️ Nenhum site encontrado no arquivo sites.txt.")
         return
 
     lista_sites = "\n".join([f"{i+1}️⃣ {url}" for i, url in enumerate(sites)])
-    enviar(f"🤖 Monitor ativo e pronto — sem erros SSL.\n🚀 Iniciando monitoramento diário dos sites de concursos...\n\n"
-           f"{lista_sites}\n\n📅 {agora()}")
+    enviar_telegram(f"🤖 Monitor ativo e pronto — sem erros SSL.\n🚀 Iniciando monitoramento diário...\n\n{lista_sites}\n\n📅 {agora()}")
 
     hashes = carregar_hashes()
+    atualizou_hash = False
 
     for i, url in enumerate(sites):
-        nome = f"Site {i+1}"
-        hashes = verificar_site(nome, url, hashes)
+        nome_site = f"Site {i+1}"
+        try:
+            html = buscar_conteudo(url)
+            nova_hash = get_hash(html)
 
-    salvar_hashes(hashes)
-    enviar(f"✅ Monitoramento concluído!\n📅 {agora()}")
+            if url not in hashes or hashes[url] != nova_hash:
+                enviar_telegram(f"🧩 Mudança detectada em {nome_site}\n{url}\n📅 {agora()}")
+                hashes[url] = nova_hash
+                atualizou_hash = True
+
+            sleep(0.8)  # pausa humanizada entre sites
+
+        except Exception as e:
+            enviar_telegram(f"⚠️ {nome_site} inacessível ({e}), monitoramento ignorado hoje.")
+
+    if atualizou_hash:
+        salvar_hashes(hashes)
+
+    enviar_telegram(f"✅ Monitoramento concluído!\n📅 {agora()}")
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        enviar(f"💥 Erro inesperado: {e}\n📅 {agora()}")
+        enviar_telegram(f"💥 Erro inesperado: {e}\n📅 {agora()}")
         print(f"Erro: {e}")
